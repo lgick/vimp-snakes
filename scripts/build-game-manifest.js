@@ -21,7 +21,9 @@ const mapsPath = path.join(distPath, 'maps');
 // to the manifest, and it must point INSIDE dist/ — dist/ is the only
 // published content, so pkg-node is copied here rather than referenced in
 // place (../core/pkg-node/ works in the checkout and breaks once installed).
-const NODE_CORE_SRC = fileURLToPath(new URL('../core/pkg-node/', import.meta.url));
+const NODE_CORE_SRC = fileURLToPath(
+  new URL('../core/pkg-node/', import.meta.url),
+);
 const NODE_CORE_DIR = 'core-node';
 const NODE_CORE_ENTRY = `./${NODE_CORE_DIR}/vimp_snakes_core.js`;
 
@@ -145,7 +147,7 @@ const manifest = {
   id: 'snakes',
   engineApi: ENGINE_API_VERSION,
   version,
-  title: 'Vimp Snakes',
+  title: 'Snakes',
   entries: {
     client: `/games/snakes/${clientFile}`,
     host: `/games/snakes/${hostFile}`,
