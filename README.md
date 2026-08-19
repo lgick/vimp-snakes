@@ -1,6 +1,6 @@
 # Vimp Snakes
 
-A VIMP game plugin (`@vimp-games/vimp-snakes`): a snake arena.
+A VIMP game plugin (`@vimp-games/snakes`): a snake arena.
 
 ## The game
 
@@ -124,5 +124,5 @@ positionally by `src/client/parts/Snake.js`.
 - `vimp-engine` `^0.10.0`
 - `vimp-engine-core` `0.3.2`
 
-Game id: `vimp-snakes`. The plugin contract lives in the engine repository
+Game id: `snakes`. The plugin contract lives in the engine repository
 under `docs/ai/`.

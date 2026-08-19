@@ -14,7 +14,7 @@ import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 // Every field below is dereferenced by the engine without a guard, so a
 // missing one is a TypeError far from its cause (docs/ai/03-host-plugin.md).
 export default {
-  id: 'vimp-snakes',
+  id: 'snakes',
   // never a literal: a number written by hand agrees with the engine on the
   // day it is typed and silently disagrees after the next release
   engineApi: ENGINE_API_VERSION,

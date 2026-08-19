@@ -142,17 +142,17 @@ if (hasNodeCore) {
 }
 
 const manifest = {
-  id: 'vimp-snakes',
+  id: 'snakes',
   engineApi: ENGINE_API_VERSION,
   version,
   title: 'Vimp Snakes',
   entries: {
-    client: `/games/vimp-snakes/${clientFile}`,
-    host: `/games/vimp-snakes/${hostFile}`,
-    wasm: `/games/vimp-snakes/assets/${wasmFile}`,
+    client: `/games/snakes/${clientFile}`,
+    host: `/games/snakes/${hostFile}`,
+    wasm: `/games/snakes/assets/${wasmFile}`,
     ...(hasNodeCore ? { wasmNode: NODE_CORE_ENTRY } : {}),
   },
-  assetsBase: '/games/vimp-snakes/',
+  assetsBase: '/games/snakes/',
   maps: {
     version: mapsHash.digest('hex').slice(0, 16),
     list: mapNames,

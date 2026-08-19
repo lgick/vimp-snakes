@@ -16,7 +16,7 @@ import { isNodeCore, loadNodeCore, loadWebCore } from '../host/nodeCore.js';
 const gameOver = new GameOver();
 
 export default {
-  id: 'vimp-snakes',
+  id: 'snakes',
   engineApi: ENGINE_API_VERSION,
 
   // MUST return { core, memory }: `memory` is the WebAssembly memory the
