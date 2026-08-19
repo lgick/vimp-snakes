@@ -41,7 +41,7 @@
     "globals": "^16.2.0",
     "happy-dom": "^20.10.6",
     "pixi.js": "^8.14.0",
-    "vimp-engine": "^0.10.0",
+    "vimp-engine": "^0.10.2",
     "vite": "^7.1.11",
     "vitest": "^4.1.9"
   }
