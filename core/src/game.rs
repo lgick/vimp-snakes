@@ -32,7 +32,7 @@ use vimp_engine_core::snapshot::Block;
 
 use crate::arena::Arena;
 use crate::config::{
-    KeyConfig, SnakeConfig, SnakesConfig, WorldConfig, PANEL_CRYSTALS, PANEL_DEAD, PANEL_LENGTH,
+    KeyConfig, SnakeConfig, SnakesConfig, WorldConfig, PANEL_CRYSTALS, PANEL_DEAD,
 };
 use crate::crystals::{roll_tier, CrystalField};
 use crate::motion::SPINE_LEN;
@@ -121,6 +121,13 @@ pub struct SnakesSim {
     world: WorldConfig,
 
     arena: Arena,
+    /// Number of snakes the host was last told about. The arena is a function
+    /// of the crowd (`src/host/ArenaScaler.js`) and the host has no join/leave
+    /// hook of its own, so the core is what reports the population — once per
+    /// change, off the fixed step, which catches every path into and out of
+    /// `snakes` including a handoff restore. `usize::MAX` means "nothing
+    /// reported yet" and forces the next step to report.
+    population: usize,
     field: CrystalField,
     snakes: IndexMap<u32, Snake>,
     bots: IndexMap<u32, Bot>,
@@ -159,20 +166,20 @@ impl SnakesSim {
         })
     }
 
-    /// Panel values that follow the crystal count. Both are pushed on every
-    /// change rather than every tick: the panel port is JSON on the reliable
-    /// channel, and a HUD that repaints 30 times a second for nothing is the
-    /// cheapest bandwidth there is to not spend.
-    fn push_vitals(events: &mut Vec<CoreEvent>, id: u32, snake: &Snake, model: &SnakeConfig) {
+    /// The panel value that follows the crystal count: how much the snake is
+    /// carrying RIGHT NOW. Pushed on every change rather than every tick —
+    /// the panel port is JSON on the reliable channel, and a HUD that repaints
+    /// 30 times a second for nothing is the cheapest bandwidth there is to not
+    /// spend.
+    ///
+    /// Body length used to be pushed here too and is not any more: the size of
+    /// the snake on screen already says it, and the panel cell went to the
+    /// three accumulating counters the host keeps (src/host/StatBridge.js).
+    fn push_vitals(events: &mut Vec<CoreEvent>, id: u32, snake: &Snake, _model: &SnakeConfig) {
         events.push(CoreEvent::PanelSet {
             id,
             field: PANEL_CRYSTALS.to_string(),
             value: snake.crystals as f64,
-        });
-        events.push(CoreEvent::PanelSet {
-            id,
-            field: PANEL_LENGTH.to_string(),
-            value: snake.target_length(model).round() as f64,
         });
     }
 
@@ -424,6 +431,7 @@ impl GameSim<SnakesGame> for SnakesSim {
             models: cfg.models.clone(),
             world,
             arena: Arena::default(),
+            population: usize::MAX,
             field: CrystalField::default(),
             snakes: IndexMap::new(),
             bots: IndexMap::new(),
@@ -453,6 +461,8 @@ impl GameSim<SnakesGame> for SnakesSim {
         let color = self.next_color;
 
         self.next_color = self.next_color.wrapping_add(1);
+
+        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
 
         let mut snake = Snake::new(model_name, team_id, color, x, y, angle_deg);
 
@@ -495,6 +505,7 @@ impl GameSim<SnakesGame> for SnakesSim {
         angle_deg: f32,
     ) {
         let start = self.world.start_crystals;
+        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
 
         if let Some(snake) = self.snakes.get_mut(&game_id) {
             snake.team_id = team_id;
@@ -554,6 +565,13 @@ impl GameSim<SnakesGame> for SnakesSim {
         if let Some(snake) = self.snakes.get_mut(&game_id) {
             snake.last_input_seq = seq;
             snake.apply_key(action, bit, &bits);
+        }
+    }
+
+    fn apply_aim(&mut self, game_id: u32, seq: u32, x: f32, y: f32, flags: u32) {
+        if let Some(snake) = self.snakes.get_mut(&game_id) {
+            snake.last_input_seq = seq;
+            snake.apply_aim(x, y, flags);
         }
     }
 
@@ -657,6 +675,16 @@ impl GameSim<SnakesGame> for SnakesSim {
 
         if self.arena.radius <= 0.0 {
             return;
+        }
+
+        // the crowd changed: the host resizes the arena off this and nothing
+        // else (`src/host/ArenaScaler.js`)
+        if self.population != self.snakes.len() {
+            self.population = self.snakes.len();
+
+            ctx.events.push(CoreEvent::Custom {
+                data: json!({ "type": "population", "count": self.population }),
+            });
         }
 
         let map_points: Vec<[f32; 3]> = map
@@ -785,11 +813,16 @@ impl GameSim<SnakesGame> for SnakesSim {
 
                 Self::push_vitals(ctx.events, *id, snake, model);
 
+                // `gained` is what the host counts with: `total` is the
+                // CARRIED amount, and that one is reset by a respawn and burnt
+                // by the boost without an event of any kind — a host diffing
+                // totals would miscount both.
                 ctx.events.push(CoreEvent::Custom {
                     data: json!({
                         "type": "crystals",
                         "id": *id,
                         "total": snake.crystals,
+                        "gained": value,
                     }),
                 });
             }
@@ -930,6 +963,7 @@ impl GameSim<SnakesGame> for SnakesSim {
     }
 
     fn clear(&mut self) {
+        self.population = usize::MAX;
         self.snakes.clear();
         self.bots.clear();
         self.cached.clear();
@@ -950,6 +984,10 @@ impl GameSim<SnakesGame> for SnakesSim {
     fn deserialize(&mut self, value: serde_json::Value) -> Result<(), String> {
         let dump: SnakesDumpOwned = serde_json::from_value(value).map_err(|e| e.to_string())?;
 
+        // a restored room has a crowd nobody has reported yet: the arena of
+        // the new host is the one the map catalog holds, not the one the old
+        // host had grown
+        self.population = usize::MAX;
         self.snakes = dump.snakes;
         self.bots = dump.bots;
         self.field = dump.field;

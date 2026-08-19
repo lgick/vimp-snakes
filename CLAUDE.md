@@ -22,7 +22,7 @@ score. The edge and other snakes' bodies kill; your own tail does not.
   `core/src/motion.rs` is shared by the host step and the client predictor —
   moving logic out of it desynchronises prediction from the server.
 
-## Three decisions the code depends on
+## Four decisions the code depends on
 
 1. **`CoreEvent::Death` is never emitted.** A round only ends through a
    reported kill, and there is no per-player respawn inside a round, so the
@@ -34,8 +34,17 @@ score. The edge and other snakes' bodies kill; your own tail does not.
    `core/src/arena.rs`, `src/client/parts/Arena.js` and
    `src/data/maps/arena.js`. A free-form `gameConfig.parts.*` key reaches the
    client config but never a part and never the core, which is why the palette
-   and the theme are plain imports (`src/data/palette.js`, `theme.js`).
-3. **The player block carries `cos`/`sin`, not the angle.** The drift detector
+   and the theme are plain imports (`src/data/palette.js`, `theme.js`). The
+   grid size follows the crowd: the core reports a `population` custom event,
+   `src/host/ArenaScaler.js` rebuilds the map with `buildArena(count)` and
+   hot-swaps it through `coreAdapter.createMap` + `socketManager.sendMap` —
+   never through the engine's own map change, which would wipe the scores.
+3. **Turning has one function, two sources.** Keys and the pointer target
+   (`MoveInput.aim`, a world point from the engine's `apply_aim`) both reduce
+   to the clamped step of `motion::step_angle`, so a mouse never out-turns
+   `turnSpeed` — and the target must enter the predictor's input history
+   (`InputSnapshot`), not just the key mask.
+4. **The player block carries `cos`/`sin`, not the angle.** The drift detector
    compares components numerically, and a raw angle crossing ±PI reads there as
    a 6.28 rad divergence.
 
@@ -81,9 +90,10 @@ Headless run, from the **engine** checkout with this package linked:
 npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/<name>.json
 ```
 
-`scenarios/` holds three: `movement` (drift-watching), `crash-and-respawn`,
-`growth` (bots, crystals, boost). All three pass with `--determinism`;
-`roundLifecycle` skips by design, this game has no round end.
+`scenarios/` holds four: `movement` (drift-watching), `crash-and-respawn`,
+`growth` (bots, crystals, boost), `pointer` (mouse/touch steering, also
+drift-watching). All four pass with `--determinism`; `roundLifecycle` skips
+by design, this game has no round end.
 
 Any functional change updates the tests covering it in the same change;
 `npx eslint .` and `npm test` end every change green.

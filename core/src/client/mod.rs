@@ -202,6 +202,10 @@ impl GameClientDef for SnakesClient {
         self.predictor.apply_input(action, key_name, local_now);
     }
 
+    fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_now: f64) {
+        self.predictor.apply_aim(x, y, flags, local_now);
+    }
+
     fn set_model(&mut self, model_name: &str) {
         self.predictor.set_model(model_name);
 

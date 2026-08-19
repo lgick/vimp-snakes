@@ -28,8 +28,10 @@ import maps from '../data/maps/index.js';
 //     is private to `_startRound()` — so a game where death is routine has to
 //     own its own respawn;
 //   * therefore the engine never writes `score`/`deaths` either, which leaves
-//     the `score` column free for the thing this game actually ranks by: the
-//     crystal count. `src/host/createModules.js` writes it.
+//     the playing columns of the stat table free for the three numbers this
+//     game actually ranks by — crystals eaten, snakes killed and the score
+//     that adds them up. `src/host/StatBridge.js` writes them, reached from
+//     `onCoreEvent` through `src/host/createModules.js`.
 export default {
   title: 'Vimp Snakes',
 
@@ -146,12 +148,22 @@ export default {
   // HUD, host half: `key` is the short wire key, `value` the starting amount.
   // The key 't' is reserved by the engine for the round time — never declare
   // it here, and always declare a type: 'time' cell for it on the client.
+  //
+  // Four numbers, and only three of them mean the same thing to a player:
+  // `crystals` is what the snake CARRIES (a crash empties it, the boost burns
+  // it, the core writes it), while `eaten`, `kills` and `score` accumulate for
+  // the whole visit and survive death. `src/host/StatBridge.js` is their only
+  // writer — see the note there for how a kill moves the victim's score over.
   panel: {
     fields: {
-      // crystals eaten and still carried — the number the stat table ranks by
+      // carried right now: the geometry of the snake and the fuel of the boost
       crystals: { key: 'c', value: 0 },
-      // body length in world units, rounded; the visible reward for eating
-      length: { key: 'l', value: 0 },
+      // crystals swallowed over the whole visit, never decremented
+      eaten: { key: 'e', value: 0 },
+      // snakes that crashed into this one
+      kills: { key: 'k', value: 0 },
+      // eaten + the whole score of everyone this snake killed
+      score: { key: 's', value: 0 },
       // 0 while alive; otherwise "crystals + 1", which is how the client tells
       // "dead with zero crystals" from "alive" through a channel whose values
       // floor at 0. `src/client/index.js` shows the result overlay off it.
@@ -167,10 +179,19 @@ export default {
   // Statistics table, host half. `key` is the column index on the wire,
   // matched positionally by src/config/client.js.
   //
-  // `score` is written by THIS GAME, not by the engine — see the note at the
-  // top of the file — and it holds the crystal count, so its bodyMethod is
-  // '=' (replace) rather than the usual '+' (accumulate): the core reports a
-  // total, not a delta.
+  // Two columns are the engine's and must keep their names: `name` (nickname)
+  // and `latency` (ping). `status` is the engine's too — RoundManager writes
+  // 'dead' and '' into it on team changes — so the column stays even though
+  // this game never reports a death.
+  //
+  // The three playing columns are written by THIS GAME, not by the engine (see
+  // the note at the top of the file), and all three carry bodyMethod '='
+  // (replace) rather than '+' (accumulate): `src/host/StatBridge.js` keeps the
+  // running totals itself and reports the result, so a re-sent value is
+  // harmless and a dropped one self-heals on the next event.
+  //
+  // `deaths` is gone on purpose: the engine never fills it here, and a crash
+  // counter next to three counters that only ever grow reads as noise.
   stat: {
     name: {
       key: 0,
@@ -184,28 +205,41 @@ export default {
       bodyValue: '',
       headValue: '',
     },
-    score: {
+    eaten: {
       key: 2,
       bodyMethod: '=',
       bodyValue: 0,
       headMethod: '+',
       headValue: 0,
     },
-    deaths: {
+    kills: {
       key: 3,
       bodyMethod: '=',
       bodyValue: 0,
       headMethod: '+',
       headValue: 0,
     },
-    latency: {
+    score: {
       key: 4,
+      bodyMethod: '=',
+      bodyValue: 0,
+      headMethod: '+',
+      headValue: 0,
+    },
+    latency: {
+      key: 5,
       bodyMethod: '=',
     },
   },
 
+  // The ceiling of the room, and the only one there is: the master no longer
+  // caps it (`HostRegistry` reads this very number out of the manifest), so
+  // what is written here is what a room may hold. The map has to be able to
+  // seat them — `src/data/maps/arena.js` keeps 64 respawn points and grows the
+  // disc with the crowd, and `npm run check:contract` fails the build if the
+  // points ever stop covering this number.
   roomDefaults: {
-    maxPlayers: 8,
+    maxPlayers: 32,
   },
 
   // The lobby "create server" form. The names must be exactly the keys the

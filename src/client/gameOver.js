@@ -23,11 +23,12 @@ const OVERLAY_ID = 'snakes-gameover';
 /// Must match the `respawn` entry of keySetList[1] in src/config/client.js.
 const RESPAWN_KEY_CODE = 82;
 
-/// Wire keys of gameConfig.panel.fields — `d` is the death signal, `c` the
-/// crystal count to show. The panel arrives as `['c:12', 'd:0', …]`, and a
-/// BARE key (no colon) is the engine's way of hiding a cell.
+/// Wire keys of gameConfig.panel.fields — `d` is the death signal, `s` the
+/// running total the card shows next to the haul of the life that just ended.
+/// The panel arrives as `['c:12', 'd:0', …]`, and a BARE key (no colon) is the
+/// engine's way of hiding a cell.
 const KEY_DEAD = 'd';
-const KEY_CRYSTALS = 'c';
+const KEY_SCORE = 's';
 
 // Synthesises one key event the engine's InputListener will accept.
 //
@@ -65,9 +66,10 @@ function parsePanel(items) {
 export default class GameOver {
   constructor() {
     this._root = null;
-    this._score = null;
+    this._crystals = null;
+    this._total = null;
     this._visible = false;
-    this._lastCrystals = 0;
+    this._lastScore = 0;
   }
 
   /// Builds the DOM once, on authorization. Doing it lazily inside the panel
@@ -81,15 +83,20 @@ export default class GameOver {
 
     root.id = OVERLAY_ID;
     root.hidden = true;
+    // Two numbers, because they answer two different questions: the haul is
+    // what this life was worth and is gone now, the total is what the stat
+    // table ranks by and survives the crash.
     root.innerHTML = `
       <div class="${OVERLAY_ID}-card">
         <h2>You crashed</h2>
         <p class="${OVERLAY_ID}-score"><span>0</span> crystals</p>
+        <p class="${OVERLAY_ID}-total">Total score: <span>0</span></p>
         <button type="button">OK</button>
       </div>
     `;
 
-    this._score = root.querySelector(`.${OVERLAY_ID}-score span`);
+    this._crystals = root.querySelector(`.${OVERLAY_ID}-score span`);
+    this._total = root.querySelector(`.${OVERLAY_ID}-total span`);
     root.querySelector('button').addEventListener('click', () => this._respawn());
 
     document.body.appendChild(root);
@@ -106,8 +113,10 @@ export default class GameOver {
 
     const values = parsePanel(items);
 
-    if (KEY_CRYSTALS in values) {
-      this._lastCrystals = values[KEY_CRYSTALS];
+    // read the score first: the host writes it and the death flag in the same
+    // tick, and the card must not show the total of the previous frame
+    if (KEY_SCORE in values) {
+      this._lastScore = values[KEY_SCORE];
     }
 
     if (!(KEY_DEAD in values)) {
@@ -126,7 +135,7 @@ export default class GameOver {
 
   reset() {
     this._hide();
-    this._lastCrystals = 0;
+    this._lastScore = 0;
   }
 
   _show(crystals) {
@@ -135,7 +144,8 @@ export default class GameOver {
     }
 
     this._visible = true;
-    this._score.textContent = String(crystals);
+    this._crystals.textContent = String(crystals);
+    this._total.textContent = String(this._lastScore);
     this._root.hidden = false;
   }
 

@@ -27,25 +27,64 @@ pub const SPINE_POINTS: usize = 16;
 /// Flat `[x, y]` pairs of the spine.
 pub const SPINE_LEN: usize = SPINE_POINTS * 2;
 
-/// Turn keys held on this step.
+/// A pointer target closer to the head than this is «already reached»: the
+/// snake keeps its heading instead of spinning on the spot around the finger.
+pub const AIM_DEAD_ZONE: f32 = 4.0;
+
+/// What the snake is told to do on this step: the held turn keys and, if the
+/// player steers with a pointer instead, the world point to head for.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct MoveInput {
     pub left: bool,
     pub right: bool,
     pub boost: bool,
+    /// World point under the pointer (mouse/finger). Ignored while a turn key
+    /// is held — the keyboard wins, and the source that gave the last order
+    /// is the one that steers.
+    pub aim: Option<[f32; 2]>,
 }
 
 /// New facing angle (radians, normalised to [-PI, PI]).
-pub fn step_angle(angle: f32, input: MoveInput, model: &SnakeConfig, dt: f32) -> f32 {
-    let mut delta = 0.0;
+///
+/// The ONE turn function, and both sources reduce to it: keys ask for
+/// «current angle ± one step», the pointer asks for «the angle onto that
+/// point». Neither can turn faster than `turn_speed` — a mouse that snapped
+/// the snake around instantly would simply be a better keyboard.
+pub fn step_angle(
+    head: [f32; 2],
+    angle: f32,
+    input: MoveInput,
+    model: &SnakeConfig,
+    dt: f32,
+) -> f32 {
+    let max_step = model.turn_speed * dt;
+    let turning_by_keys = input.left || input.right;
 
-    if input.left {
-        delta -= model.turn_speed * dt;
-    }
+    let delta = match input.aim {
+        Some(target) if !turning_by_keys => {
+            let dx = target[0] - head[0];
+            let dy = target[1] - head[1];
 
-    if input.right {
-        delta += model.turn_speed * dt;
-    }
+            if dx * dx + dy * dy <= AIM_DEAD_ZONE * AIM_DEAD_ZONE {
+                0.0
+            } else {
+                normalize_angle(dy.atan2(dx) - angle).clamp(-max_step, max_step)
+            }
+        }
+        _ => {
+            let mut delta = 0.0;
+
+            if input.left {
+                delta -= max_step;
+            }
+
+            if input.right {
+                delta += max_step;
+            }
+
+            delta
+        }
+    };
 
     normalize_angle(angle + delta)
 }
@@ -323,10 +362,10 @@ mod tests {
         let input = MoveInput {
             left: true,
             right: true,
-            boost: false,
+            ..MoveInput::default()
         };
 
-        assert_eq!(step_angle(0.5, input, &model, 1.0 / 120.0), 0.5);
+        assert_eq!(step_angle([0.0, 0.0], 0.5, input, &model, 1.0 / 120.0), 0.5);
     }
 
     #[test]
@@ -339,10 +378,67 @@ mod tests {
         let mut angle = 0.0;
 
         for _ in 0..1000 {
-            angle = step_angle(angle, input, &model, 1.0 / 120.0);
+            angle = step_angle([0.0, 0.0], angle, input, &model, 1.0 / 120.0);
         }
 
         assert!(angle.abs() <= core::f32::consts::PI);
+    }
+
+    #[test]
+    fn aim_turns_towards_the_point_but_not_faster_than_the_keys() {
+        let model = model();
+        let dt = 1.0 / 120.0;
+        let max_step = model.turn_speed * dt;
+
+        // цель ровно позади головы: полный разворот за один шаг невозможен
+        let input = MoveInput {
+            aim: Some([-100.0, 0.0]),
+            ..MoveInput::default()
+        };
+        let angle = step_angle([0.0, 0.0], 0.0, input, &model, dt);
+
+        assert!((angle.abs() - max_step).abs() < 1e-6, "{angle}");
+    }
+
+    #[test]
+    fn aim_reached_keeps_the_heading() {
+        let model = model();
+        let input = MoveInput {
+            aim: Some([1.0, 0.0]),
+            ..MoveInput::default()
+        };
+
+        assert_eq!(step_angle([0.0, 0.0], 0.7, input, &model, 1.0 / 120.0), 0.7);
+    }
+
+    #[test]
+    fn aim_stops_short_of_overshooting_a_near_target() {
+        let model = model();
+        let dt = 1.0 / 120.0;
+
+        // цель в 0.01 рад слева: доворот ровно на 0.01, а не на полный шаг
+        let target = [100.0 * 0.01f32.cos(), 100.0 * 0.01f32.sin()];
+        let input = MoveInput {
+            aim: Some(target),
+            ..MoveInput::default()
+        };
+        let angle = step_angle([0.0, 0.0], 0.0, input, &model, dt);
+
+        assert!((angle - 0.01).abs() < 1e-4, "{angle}");
+    }
+
+    #[test]
+    fn keys_win_over_the_pointer() {
+        let model = model();
+        let dt = 1.0 / 120.0;
+        let max_step = model.turn_speed * dt;
+        let input = MoveInput {
+            left: true,
+            aim: Some([0.0, 100.0]),
+            ..MoveInput::default()
+        };
+
+        assert!((step_angle([0.0, 0.0], 0.0, input, &model, dt) + max_step).abs() < 1e-6);
     }
 
     #[test]

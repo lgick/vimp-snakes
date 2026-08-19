@@ -107,7 +107,8 @@ pub struct SnakesConfig {
     #[serde(default)]
     pub weapons: IndexMap<String, WeaponConfig>,
     pub player_keys: IndexMap<String, KeyConfig>,
-    /// Start values of the panel: `crystals`, `length`, `dead`.
+    /// Start values of the panel. The core writes two of them —
+    /// `crystals` and `dead`; the rest belong to the host.
     pub panel: IndexMap<String, PanelValue>,
 }
 
@@ -116,7 +117,6 @@ pub struct SnakesConfig {
 /// here produces a panel value the client receives under the name `undefined`
 /// — which invariant 6 (`panelContract`) is there to catch.
 pub const PANEL_CRYSTALS: &str = "crystals";
-pub const PANEL_LENGTH: &str = "length";
 pub const PANEL_DEAD: &str = "dead";
 
 impl SnakesConfig {
@@ -129,7 +129,7 @@ impl SnakesConfig {
             return Err("models is empty: there is no snake to spawn".to_string());
         }
 
-        for key in [PANEL_CRYSTALS, PANEL_LENGTH, PANEL_DEAD] {
+        for key in [PANEL_CRYSTALS, PANEL_DEAD] {
             if !self.panel.contains_key(key) {
                 return Err(format!(
                     "panel field '{key}' is missing: the core writes it every match"
@@ -247,7 +247,6 @@ pub(crate) mod fixtures {
             },
             "panel": {
                 "crystals": { "value": 0.0 },
-                "length": { "value": 0.0 },
                 "dead": { "value": 0.0 }
             }
         }))

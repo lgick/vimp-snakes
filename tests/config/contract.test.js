@@ -132,6 +132,21 @@ describe('client config', () => {
     expect([...bound].sort()).toEqual([...declared].sort());
   });
 
+  it('declares the pointer channel for the player key set only', () => {
+    // The pointer is a SECOND way to play, not a replacement: A/D/W stay
+    // bound (the assertion above proves it), and the channel is live only in
+    // key set [1] — a spectator has no snake to steer. Dropping `pointer`
+    // would silently make the game unplayable on a phone, where there is no
+    // keyboard at all.
+    const { pointer, keySetList } = clientConfig.modules.controls;
+
+    expect(pointer.keySets).toEqual([1]);
+    expect(keySetList[pointer.keySets[0]]).toBeDefined();
+    expect(pointer.doubleTapMs).toBeGreaterThan(0);
+    expect(pointer.doubleTapPx).toBeGreaterThan(0);
+    expect(pointer.sendIntervalMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("maps the engine time key 't' to a time field", () => {
     const { keys, fields } = clientConfig.modules.panel;
     const field = fields.find(item => item.name === keys.t);
@@ -151,6 +166,59 @@ describe('client config', () => {
     )) {
       expect(keys[key], `${name} -> ${key}`).toBeDefined();
       expect(names, `${name}`).toContain(keys[key]);
+    }
+  });
+
+  it('matches every stat column to the host index that fills it', () => {
+    // The columns are resolved POSITIONALLY: the host writes by name, the
+    // engine turns the name into `key`, and the client array is read by that
+    // index. A column inserted on one side only shifts every column after it.
+    const { columns } = clientConfig.modules.stat.params;
+    const { stat } = hostPlugin.gameConfig;
+
+    expect(columns).toHaveLength(Object.keys(stat).length);
+
+    for (const [name, { key }] of Object.entries(stat)) {
+      expect(columns[key], `${name} -> ${key}`).toBeDefined();
+    }
+  });
+
+  it('ranks the table by the score column the bridge writes', () => {
+    const [[primary, descending], [secondary]] =
+      clientConfig.modules.stat.params.sortList.players;
+
+    expect(primary).toBe(hostPlugin.gameConfig.stat.score.key);
+    expect(descending).toBe(true);
+    // ties break on crystals eaten
+    expect(secondary).toBe(hostPlugin.gameConfig.stat.eaten.key);
+  });
+
+  it('leaves the two columns the engine fills to the engine', () => {
+    // `name` and `latency` are written by the engine BY NAME (RoundManager,
+    // HostGame) — renaming either one silently empties the column.
+    const { stat } = hostPlugin.gameConfig;
+
+    expect(stat.name).toBeDefined();
+    expect(stat.latency).toBeDefined();
+    // and `status`, which RoundManager writes on every team change
+    expect(stat.status).toBeDefined();
+  });
+
+  it('names every panel key the client maps on the host side too', () => {
+    // The mirror of the case above: a client key with no host field is a cell
+    // that can never be filled. `t` is the one exception — the engine sends
+    // the round time itself, without the game declaring it.
+    const { keys } = clientConfig.modules.panel;
+    const hostKeys = new Set([
+      ...Object.values(hostPlugin.gameConfig.panel.fields).map(
+        field => field.key,
+      ),
+      hostPlugin.gameConfig.panel.activeKey,
+      't',
+    ]);
+
+    for (const key of Object.keys(keys)) {
+      expect(hostKeys, key).toContain(key);
     }
   });
 

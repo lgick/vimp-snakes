@@ -22,54 +22,113 @@
 //
 // `physicsStatic` IS empty, and that is deliberate: an entry there would turn
 // every cell into a static collider and fill the disc with solid rock.
+//
+// ***** WHY THIS FILE EXPORTS A FUNCTION *****
+//
+// The arena grows with the crowd (`src/host/ArenaScaler.js`): the number of
+// cells is a function of how many snakes are in the room, so that the area
+// per snake — and with it the odds of meeting one — stays what it is at eight
+// players. The default export is the map the engine loads at round start and
+// the one `scripts/export-maps.js` writes into `dist/maps/arena.json`; every
+// later size is the same object rebuilt by `buildArena()` and hot-swapped
+// through MAP_DATA. Nothing else in the game knows a size.
 
-const SIZE = 20; // cells per side
-const STEP = 128; // world units per cell -> 2560 x 2560, radius 1280
+const STEP = 128; // world units per cell
 const TILE = 1; // the single tile value; purely a render-layer marker
 
-const RADIUS = (SIZE * STEP) / 2;
-const CENTRE = RADIUS;
+// The size the game is tuned at: 20 cells of 128 is a 2560-wide arena, radius
+// 1280, and it is comfortable for eight snakes. Every other size is derived
+// from this pair, so a retune of the base moves the whole curve.
+export const BASE_SIZE = 20;
+export const BASE_PLAYERS = 8;
 
-// Respawn points: a ring well inside the boundary, every snake facing the
-// centre so that a fresh spawn never starts by driving into the wall.
+// Population is rounded UP to a multiple of this before the size is computed:
+// resizing on every single join would rebuild the map of everyone in the room
+// for one newcomer. `src/host/ArenaScaler.js` adds the hysteresis that keeps
+// a player toggling around a boundary from doing the same.
+export const PLAYER_STEP = 4;
+
+// Respawn points. The LENGTH of this list is the hard capacity of the team on
+// this map — the engine hands the points out sequentially and refuses the next
+// joiner when they run out. It is deliberately double `roomDefaults.maxPlayers`
+// (32), so a full room still leaves the bots somewhere to appear.
+const RESPAWN_COUNT = 64;
+
+// Points are laid out as a sunflower spiral rather than a ring: sixty-four
+// spawns on one circle sit ~60 units apart at the base size, which is inside a
+// snake's own body. `sqrt` on the radius is what makes the spiral uniform by
+// AREA — a linear radius piles two thirds of the points into the middle.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+// how much of the radius the outermost respawn point is allowed to reach: a
+// snake spawning at 0.72 R faces the centre with most of the disc ahead of it
+const RESPAWN_SPAN = 0.72;
+
+// The number of cells per side for a room of `count` participants.
 //
-// The LENGTH of this list is the hard capacity of the team on this map — the
-// engine hands the points out sequentially and refuses the next joiner when
-// they run out. 16 covers roomDefaults.maxPlayers (8) with room for bots.
-const RESPAWN_COUNT = 16;
-const RESPAWN_RING = 640;
+// Area grows linearly with the crowd — `size = BASE_SIZE * sqrt(n / 8)` — so
+// the disc per snake is constant and the arena never becomes either a corridor
+// or an empty plain. Below the base population the size is pinned: a duel in a
+// pond is worse than a duel in a lake.
+export function arenaSizeFor(count) {
+  const stepped = Math.ceil(Math.max(count, 0) / PLAYER_STEP) * PLAYER_STEP;
+  const players = Math.max(stepped, BASE_PLAYERS);
 
-const respawns = Array.from({ length: RESPAWN_COUNT }, (_, i) => {
-  const theta = (i / RESPAWN_COUNT) * Math.PI * 2;
-  const x = CENTRE + Math.cos(theta) * RESPAWN_RING;
-  const y = CENTRE + Math.sin(theta) * RESPAWN_RING;
+  return Math.round(BASE_SIZE * Math.sqrt(players / BASE_PLAYERS));
+}
 
-  // [x, y, angleDeg] — DEGREES, not radians: the core converts them itself.
-  // Facing the centre is theta + 180.
-  return [
-    Math.round(x),
-    Math.round(y),
-    Math.round(((theta * 180) / Math.PI + 180) % 360),
-  ];
-});
+// The respawn points of a `size`-cell arena: [x, y, angleDeg] each, DEGREES,
+// not radians — the core converts them itself. Every snake faces the centre so
+// that a fresh spawn never starts by driving into the wall.
+function buildRespawns(size) {
+  const radius = (size * STEP) / 2;
+  const centre = radius;
 
-export default {
-  // which parts.gameSets entry builds this map (src/config/client.js)
-  setId: 'c1',
-  scale: 1,
-  step: STEP,
+  return Array.from({ length: RESPAWN_COUNT }, (_, i) => {
+    const r = radius * RESPAWN_SPAN * Math.sqrt((i + 0.5) / RESPAWN_COUNT);
+    const theta = i * GOLDEN_ANGLE;
+    const x = centre + Math.cos(theta) * r;
+    const y = centre + Math.sin(theta) * r;
 
-  // no solid tiles: the only boundary is the circle, enforced by the core
-  physicsStatic: [],
-  physicsDynamic: [],
+    return [
+      Math.round(x),
+      Math.round(y),
+      Math.round((((theta * 180) / Math.PI + 180) % 360 + 360) % 360),
+    ];
+  });
+}
 
-  // one entry so the Arena part is constructed; the tile list is never drawn
-  layers: { 1: [TILE] },
+// The map object itself, for a room of `count` participants. The shape is the
+// engine's map payload: the same object goes to `coreAdapter.createMap()` and
+// out to the clients on MAP_DATA, because `scale` is 1 and the engine's
+// scaling pass is therefore a copy.
+export function buildArena(count = 0) {
+  const size = arenaSizeFor(count);
 
-  map: Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => TILE)),
+  return {
+    // which parts.gameSets entry builds this map (src/config/client.js)
+    setId: 'c1',
+    scale: 1,
+    step: STEP,
 
-  // one playing team, so one entry
-  respawns: {
-    players: respawns,
-  },
-};
+    // no solid tiles: the only boundary is the circle, enforced by the core
+    physicsStatic: [],
+    physicsDynamic: [],
+
+    // one entry so the Arena part is constructed; the tile list is never drawn
+    layers: { 1: [TILE] },
+
+    map: Array.from({ length: size }, () =>
+      Array.from({ length: size }, () => TILE),
+    ),
+
+    // one playing team, so one entry
+    respawns: {
+      players: buildRespawns(size),
+    },
+  };
+}
+
+// The map of an empty room: what `scripts/export-maps.js` writes to
+// dist/maps/arena.json and what the engine loads before anyone has joined.
+export default buildArena(0);

@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "seed": 3812,
+  "map": "arena",
+  "participants": [
+    {
+      "id": "p1",
+      "name": "Pointer",
+      "model": "s1"
+    }
+  ],
+  "timeline": [
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p1",
+      "team": "players"
+    },
+    {
+      "tick": 60,
+      "op": "aim",
+      "who": "p1",
+      "x": 1280,
+      "y": 1800,
+      "flags": 1
+    },
+    {
+      "tick": 240,
+      "op": "aim",
+      "who": "p1",
+      "x": 800,
+      "y": 1280,
+      "flags": 1
+    },
+    {
+      "tick": 420,
+      "op": "aim",
+      "who": "p1",
+      "x": 800,
+      "y": 1280,
+      "flags": 0
+    },
+    {
+      "tick": 480,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "right"
+    },
+    {
+      "tick": 540,
+      "op": "aim",
+      "who": "p1",
+      "x": 1700,
+      "y": 900,
+      "flags": 3
+    },
+    {
+      "tick": 660,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "right"
+    },
+    {
+      "tick": 900,
+      "op": "aim",
+      "who": "p1",
+      "x": 1280,
+      "y": 1280,
+      "flags": 1
+    },
+    {
+      "tick": 1080,
+      "op": "aim",
+      "who": "p1",
+      "x": 1280,
+      "y": 1280,
+      "flags": 0
+    }
+  ],
+  "unusedSnapshotKeys": [
+    "c1"
+  ],
+  "divergence": {
+    "thresholds": [
+      8,
+      8,
+      0.2,
+      0.2
+    ],
+    "defaultThreshold": 1000000
+  },
+  "ticks": 1200,
+  "dumpTicks": [
+    600,
+    1200
+  ]
+}

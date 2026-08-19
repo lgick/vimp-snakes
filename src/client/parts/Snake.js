@@ -77,7 +77,7 @@ function smooth(points, steps) {
 }
 
 export default class Snake extends Container {
-  constructor(data, _assets, dependencies = {}) {
+  constructor(data, _assets, dependencies = {}, context = {}) {
     super();
 
     // Paint order is `zIndex` and nothing else: the engine marks the stage
@@ -86,6 +86,13 @@ export default class Snake extends Container {
     this.zIndex = 3;
 
     this._sound = dependencies.soundManager;
+
+    // 'is this snake mine?' — asked at the moment a cue fires, never cached:
+    // parts are built from the first shot, which precedes the first player
+    // block, so the local snake is created while the engine still answers
+    // null. See docs/ai/04-client-plugin.md § localPlayer.
+    this._localPlayer = dependencies.localPlayer;
+    this._id = context.id ?? null;
 
     this._body = new Graphics();
     this._head = new Graphics();
@@ -120,10 +127,9 @@ export default class Snake extends Container {
     this._drawBody(points, radius, color, boosting);
     this._drawHead(points[0], angle, radius, color);
 
-    // Somebody just ate: the pickup is audible for every snake, not only the
-    // local one, and positionally — a crunch behind you is the cue that the
-    // snake on your tail is growing. Rows only arrive when the count changed,
-    // so this cannot fire twice for one crystal.
+    // This snake just ate. The cue is played for the local player only —
+    // everyone else's pickups are drawn but silent. Rows only arrive when the
+    // count changed, so this cannot fire twice for one crystal.
     if (this._crystals !== null && crystals > this._crystals) {
       this._play('pickup', points[0]);
     }
@@ -201,16 +207,44 @@ export default class Snake extends Container {
     }
   }
 
+  /// True while this part draws the snake of the player sitting at this tab.
+  /// A missing service means an engine older than the one this game is built
+  /// against: say so once, out loud, and stay silent rather than play back
+  /// the whole arena. Log, never throw — a part runs inside the render tick,
+  /// and nothing on that path catches.
+  _isLocal() {
+    if (!this._localPlayer) {
+      if (!this._warned) {
+        this._warned = true;
+        console.error(
+          '[snakes] the `localPlayer` service is missing: engine too old, ' +
+            'game cues stay silent',
+        );
+      }
+
+      return false;
+    }
+
+    return this._localPlayer.is(this._id);
+  }
+
   _play(name, [x, y]) {
-    // the pool is 30 world voices ranked by priority² / distance²; a crowded
-    // arena drops the far ones by itself
-    this._sound?.registerSound(name, { position: { x, y } });
+    // Positional even though only the local snake is audible: the listener
+    // sits on the head, so the pan is neutral and the distance ~0 — the same
+    // call stays correct the day a cue is played for somebody else again.
+    // The pool is 30 world voices ranked by priority² / distance².
+    if (!this._sound || !this._isLocal()) {
+      return;
+    }
+
+    this._sound.registerSound(name, { position: { x, y } });
   }
 
   destroy() {
     // A snake only leaves the canvas by crashing (the core sends a null row) —
     // or on a map change, which also resets the sound engine, so the burst of
-    // cues that would produce never reaches the speakers.
+    // cues that would produce never reaches the speakers. Audible for the
+    // local player only: it is the sound of YOUR crash, not of the arena's.
     this._play('death', this._headAt);
 
     super.destroy({ children: true });

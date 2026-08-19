@@ -44,14 +44,18 @@ export default {
       ],
     },
 
-    // the service pool has exactly three entries — renderer, soundManager,
-    // assetsBase. An unknown name is not an error: the part just gets
-    // undefined and draws nothing.
+    // the service pool has exactly four entries — renderer, soundManager,
+    // assetsBase, localPlayer. An unknown name is not an error: the part just
+    // gets undefined and draws nothing.
     componentDependencies: {
       // a snake plays the pickup cue when its own count goes up, and the death
-      // cue as it leaves the canvas — positionally, for every snake, so the
-      // one behind you is audible
+      // cue as it leaves the canvas — but only for the player of THIS tab: an
+      // arena of thirty snakes eating at once is a wall of noise, and the cue
+      // that matters is your own
       soundManager: ['Snake'],
+      // 'is this snake mine?' — the part compares the id it was built with
+      // against the client's own game id (engine service, see Snake.js)
+      localPlayer: ['Snake'],
     },
 
     sounds,
@@ -102,6 +106,22 @@ export default {
           82: 'respawn', // r
         },
       ],
+
+      // указатель (мышь/палец) — второй способ управления, не замена
+      // клавишам: A/D/W продолжают работать, а на смартфоне доступен только
+      // он. Движок шлёт канал лишь тем играм, что объявили этот ключ, и
+      // только в перечисленных наборах клавиш — [1] это набор игрока,
+      // наблюдателю рулить нечем.
+      pointer: {
+        keySets: [1],
+        // пороги распознавания двойного тапа (dblclick тач-устройства не
+        // гарантируют): второе нажатие в 300 мс и 40 px от первого
+        doubleTapMs: 300,
+        doubleTapPx: 40,
+        // move по проводу не чаще 50 мс: змейка доворачивает не быстрее
+        // turnSpeed, чаще ей просто нечего сказать
+        sendIntervalMs: 50,
+      },
     },
 
     chat: {
@@ -140,31 +160,46 @@ export default {
       // 't' is sent by the engine itself and MUST map to a type: 'time'
       // field, or the round time never appears on the HUD.
       keys: {
+        e: 'eaten',
+        k: 'kills',
+        s: 'score',
+        // carried right now — geometry and boost fuel, not a number the HUD
+        // shows; the three above are what the player reads
         c: 'crystals',
-        l: 'length',
         // 0 alive / crystals+1 dead — read by the result overlay, never shown
         d: 'dead',
         // gameConfig.panel.activeKey: the core pushes 'CRUISE' / 'BOOST'
         wa: 'mode',
         t: 'time',
       },
+      // The order here IS the order of the cells: PanelView builds the row by
+      // walking this array (`_buildPanel`). The logo is not among them — the
+      // engine has no cell type for one — so it is drawn by `#panel::before`
+      // in style.css.
+      //
+      // The last four are declared but hidden by style.css. Three of them
+      // (crystals, dead, mode) are host fields, and invariant 6
+      // (panelContract) requires the client to name every one of those; `time`
+      // is the engine's own key 't', which PanelView dereferences unguarded —
+      // dropping the field crashes the HUD on the first round-time tick, so it
+      // stays declared even though this game's round never ends.
       fields: [
+        { name: 'eaten', elem: 'panel-eaten', type: 'value' },
+        { name: 'kills', elem: 'panel-kills', type: 'value' },
+        { name: 'score', elem: 'panel-score', type: 'value' },
         { name: 'crystals', elem: 'panel-crystals', type: 'value' },
-        { name: 'length', elem: 'panel-length', type: 'value' },
+        { name: 'dead', elem: 'panel-dead', type: 'value' },
         { name: 'mode', elem: 'panel-mode', type: 'weapon' },
         { name: 'time', elem: 'panel-time', type: 'time' },
-        // present so invariant 6 (panelContract) holds — the host declares the
-        // field, so the client must know its name; style.css keeps it hidden
-        { name: 'dead', elem: 'panel-dead', type: 'value' },
       ],
     },
 
     stat: {
       params: {
-        // five columns, positionally matched to the host's `key` indexes.
-        // Column 2 is the crystal count: this game writes it itself instead of
-        // letting the engine count kills into it (src/config/game.js).
-        columns: ['snake', 'status', 'crystals', 'crashes', 'ping'],
+        // six columns, positionally matched to the host's `key` indexes.
+        // Columns 2..4 are written by this game itself instead of by the
+        // engine's kill machinery (src/config/game.js).
+        columns: ['snake', 'status', 'eaten', 'kills', 'score', 'ping'],
         // one playing team, so one aggregate header
         heads: {
           1: 'players',
@@ -174,11 +209,13 @@ export default {
           2: 'spectators',
         },
         // [columnIndex, descending]; sorting is numeric, a text column sorts
-        // as 0. The leader is whoever carries the most crystals.
+        // as 0. The leader is whoever has the most total points (column 4);
+        // ties break on crystals eaten (column 2), so a player who earned the
+        // same score by eating rather than by killing ranks first.
         sortList: {
           players: [
+            [4, true],
             [2, true],
-            [3, false],
           ],
         },
       },

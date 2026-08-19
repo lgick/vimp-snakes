@@ -3,7 +3,7 @@
 Пункты пользователя 8, 3, 4. Правки только в `vimp-snakes`, плюс
 регистрация игры в конфиге мастера (не в опубликованном коде — см. 1.1).
 
-## 1.1. Кнопка `#lobby-host` неактивна — это конфигурация, не баг
+## 1.1. Кнопка `#lobby-host` неактивна — это конфигурация, не баг ✅ выполнен
 
 **Диагноз подтверждён чтением кода, правок движка не требует.**
 
@@ -44,7 +44,79 @@
 **Проверка:** мастер поднят, в лобби выбрана snakes, `#lobby-host` активна,
 комната создаётся, второй вкладкой в неё можно войти.
 
-## 1.2. Не озвучивать чужие подборы и чужие столкновения (пункт 4)
+**Выполнено ✅ (по отдельному указанию пользователя — доработкой движка):**
+
+- `packages/engine/src/master/lobby.js` — `applyMasterEnv` вынесен из
+  `if (isProduction)`: `GAMES_MATRIX` читается и в dev;
+- `packages/engine/src/master/localGames.js` — новый модуль: без
+  `GAMES_MATRIX` каталог собирается сам из собранных пакетов
+  `@vimp-games/*` в `node_modules` (обычная зависимость или симлинк
+  `npm link`), по возрастанию id и впереди записей конфига. Тот же вызов
+  добавлен в `src/dedicated/main.js`;
+- тесты `tests/master/localGames.test.js` (10 случаев), докой покрыты
+  `docs/en|ru/configuration.md`, `docs/en|ru/master.md`, комментарий в
+  `src/config/master.js`, `### Added` + `### Changed` в
+  `packages/engine/CHANGELOG.md`;
+- обе игры прилинкованы в чекаут движка одной командой; проверено запуском:
+  `-> Games loaded: snakes, tanks`, при заданной `GAMES_MATRIX` —
+  `-> Games loaded: tanks` (обнаружение отключается);
+- команда запуска зафиксирована в `README.md` пакета snakes (раздел
+  «Run it» → «In the lobby, against another player»).
+
+`snakes` идёт первой по алфавиту, то есть становится активной игрой лобби —
+именно это и делает `#lobby-host` активной. Порядок закрепляется локальной
+`GAMES_MATRIX`.
+
+**Исходно найденное ограничение (снято правкой выше):** лобби читает
+env-переопределения **только в проде** — `packages/engine/src/master/lobby.js`
+вызывает `applyMasterEnv(config, env)` внутри `if (isProduction)`
+(«лобби в dev работает на дефолтах конфига»). Под `npm run dev`
+`GAMES_MATRIX` игнорируется, и каталог остаётся `[{id:'tanks'}]` из
+`master.js`. Остаются: запуск с `NODE_ENV=production` (нужны `VIMP_DOMAIN`,
+сертификаты и собранные бандлы) либо доработка движка (читать `GAMES_MATRIX`
+и в dev) — по пункту 4 это отдельная задача, в этот этап не расширяется.
+Решение за пользователем, работа приостановлена на этом месте.
+
+## 1.2. Не озвучивать чужие подборы и чужие столкновения (пункт 4) ✅ выполнен
+
+**Отклонение от плана, согласовано с пользователем:** готового признака
+«локальная змейка» в движке не оказалось вовсе — `GameModel.create()` держит
+id экземпляра у себя и в конструктор part'а его не передаёт, а свой gameId
+знает только клиентское ядро (`ClientCore.my_game_id()`). Признак сделан
+**примитивом движка**, а не приёмом внутри snakes: он нужен и tanks, и всем
+следующим играм, где звучать должен только свой персонаж.
+
+Движок (`~/Sites/my/vimp`, аддитивно, `### Added` в
+`packages/engine/CHANGELOG.md`):
+
+- `src/client/lib/localPlayer.js` — сервис `{ id, is(id) }` пула зависимостей;
+  читает свой gameId **лениво** у ядра (сущности создаются из `FIRST_SHOT_DATA`
+  раньше первого player-блока, поэтому флаг, вычисленный в конструкторе,
+  ложен именно для своего персонажа);
+- `src/client/main.js` — сервис в `availableServices`, четвёртым именем пула;
+- `src/client/components/model/Game.js` — part получает `{ id }` четвёртым
+  аргументом конструктора (`{ id: null }` для эффекта);
+- `devtools/contract/rules/c4-component-dependencies.js` — `localPlayer` в
+  списке существующих сервисов (иначе `check:contract` падал на C4);
+- `docs/ai/04-client-plugin.md`, `docs/en/client.md`, `docs/ru/client.md`;
+- тесты: `tests/client/lib/localPlayer.test.js`, `tests/client/GameModel.test.js`,
+  `tests/devtools/contract/rules.test.js` — движок зелёный (1376 тестов,
+  eslint чист).
+
+Snakes:
+
+- `src/config/client.js` — `componentDependencies.localPlayer: ['Snake']`;
+- `src/client/parts/Snake.js` — `_isLocal()` спрашивает сервис **в момент
+  звука**; `_play()` молчит для чужой змейки; отсутствие сервиса (старый
+  движок) — один `console.error` и тишина, без throw: конструктор part'а
+  работает внутри рендер-тика, где ничего не ловит исключения;
+- `tests/client/parts.test.js` — четыре случая: своя змейка звучит, чужая нет,
+  вопрос задаётся не в конструкторе, старый движок жалуется ровно один раз.
+
+Пакет `vimp-engine` прилинкован в snakes (`npm link vimp-engine`) — без этого
+в `node_modules` лежит опубликованная 0.10.2 без сервиса.
+
+### Исходный разбор (сохранён)
 
 Сейчас `src/client/parts/Snake.js` играет `pickup`, когда растёт **его
 собственный** счётчик кристаллов, и `death` из `destroy()` — и то и другое

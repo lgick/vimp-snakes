@@ -17,28 +17,86 @@
   text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
 }
 
-#panel-crystals::before {
+/*
+ * The logo. The engine has no panel cell type for one — PanelView builds the
+ * row out of `modules.panel.fields` and every field there is a value, a bar, a
+ * time or a weapon — so the logo is not a cell at all: it is the ::before of
+ * the container the engine ships, drawn ahead of the table.
+ */
+#panel::before {
+  content: 'VIMP SNAKES';
+  margin-right: 4px;
+  color: #7ef9ff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  opacity: 0.9;
+}
+
+#panel-eaten::before {
   content: '◆ ';
   color: #7ef9ff;
 }
 
-#panel-length::before {
-  content: '↔ ';
-  opacity: 0.7;
+#panel-kills::before {
+  content: '☠ ';
+  color: #ff7a8a;
 }
 
-#panel-time {
-  opacity: 0.8;
+#panel-score::before {
+  content: '★ ';
+  color: #ffd76b;
 }
 
 /*
- * The `dead` cell carries no text for the player — it is the signal the result
- * screen reads out of PANEL_DATA. It is declared on both halves so that
- * invariant 6 (panelContract) holds, and hidden here so that a raw number does
- * not sit in the HUD.
+ * Cells the player never sees. Three of them carry data the game reads out of
+ * PANEL_DATA rather than shows — `crystals` (carried right now), `dead` (the
+ * signal the result screen fires off) and `mode` (CRUISE / BOOST) — and
+ * `time` exists only because the engine sends the key 't' unconditionally.
+ * All four are declared on both halves so invariant 6 (panelContract) holds.
+ *
+ * `!important` is not decoration: PanelView.update() writes
+ * `elem.style.display = 'table-cell'` inline on every value it delivers, and
+ * an inline declaration outranks even an id selector.
  */
-#panel-dead {
-  display: none;
+#panel-crystals,
+#panel-dead,
+#panel-mode,
+#panel-time {
+  display: none !important;
+}
+
+/*
+ * ***** the stat table *****
+ *
+ * Six columns instead of the engine's five (name · status · eaten · kills ·
+ * score · ping). The engine's own sheet gives widths to :nth-child(1..5) that
+ * already add up to 100%, and the table is `table-layout: fixed` — the sixth
+ * column would be squeezed to nothing. So every width is restated here, which
+ * is exactly the escape hatch invariant C6 (statColumns) names when it warns
+ * about a column count other than five.
+ */
+#stat .stat-head span:nth-child(1),
+#stat table td:nth-child(1) {
+  width: 34%;
+}
+
+#stat .stat-head span:nth-child(2),
+#stat table td:nth-child(2) {
+  width: 12%;
+  text-align: center;
+}
+
+#stat .stat-head span:nth-child(3),
+#stat table td:nth-child(3),
+#stat .stat-head span:nth-child(4),
+#stat table td:nth-child(4),
+#stat .stat-head span:nth-child(5),
+#stat table td:nth-child(5),
+#stat .stat-head span:nth-child(6),
+#stat table td:nth-child(6) {
+  width: 13.5%;
+  text-align: right;
 }
 
 /* ***** the result screen ***** */
@@ -77,8 +135,20 @@
 }
 
 .snakes-gameover-score {
-  margin: 0 0 22px;
+  margin: 0 0 6px;
   opacity: 0.75;
+}
+
+.snakes-gameover-total {
+  margin: 0 0 22px;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  opacity: 0.6;
+}
+
+.snakes-gameover-total span {
+  font-weight: 700;
+  color: #ffd76b;
 }
 
 .snakes-gameover-score span {

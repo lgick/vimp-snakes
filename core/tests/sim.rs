@@ -507,3 +507,129 @@ fn serialize_deserialize_round_trips_the_frame() {
         "a restored core must pack the very same frame"
     );
 }
+
+// ***** the arena follows the crowd (plan/snakes-v2 stage 3) *****
+
+/// Every `population` report in the queue, oldest first.
+fn population_events(core: &mut GameCore) -> Vec<u64> {
+    events(core)
+        .into_iter()
+        .filter_map(|event| match event {
+            CoreEvent::Custom { data } if data["type"] == "population" => {
+                data["count"].as_u64()
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_core_reports_the_population_once_per_change() {
+    let mut core = make_core(0, 0);
+
+    // an empty room still reports: the host has nothing to size the arena by
+    // until it does
+    steps(&mut core, 1);
+    assert_eq!(population_events(&mut core), vec![0]);
+
+    core.spawn_actor(1, "s1", 1, CENTRE, CENTRE, 0.0).unwrap();
+    core.spawn_actor(2, "s1", 1, CENTRE + 200.0, CENTRE, 180.0)
+        .unwrap();
+    steps(&mut core, 1);
+    assert_eq!(population_events(&mut core), vec![2]);
+
+    // nothing changed: no report, however many steps run
+    steps(&mut core, 30);
+    assert_eq!(population_events(&mut core), Vec::<u64>::new());
+
+    core.remove_actor(1);
+    steps(&mut core, 1);
+    assert_eq!(population_events(&mut core), vec![1]);
+}
+
+#[test]
+fn a_restored_room_reports_its_population_again() {
+    let mut core = make_core(0, 0);
+
+    core.spawn_actor(1, "s1", 1, CENTRE, CENTRE, 0.0).unwrap();
+    steps(&mut core, 1);
+    assert_eq!(population_events(&mut core), vec![1]);
+
+    // the handoff: a fresh host, the same match. Its arena is the catalog map
+    // again, so the crowd has to be reported to it from scratch
+    let dump = core.serialize_state().unwrap();
+    let mut restored = make_core(0, 0);
+
+    restored.deserialize_state(&dump).unwrap();
+    steps(&mut restored, 1);
+
+    assert_eq!(population_events(&mut restored), vec![1]);
+}
+
+#[test]
+fn a_bigger_map_loaded_under_the_match_keeps_every_snake() {
+    let mut core = make_core(0, 0);
+
+    core.spawn_actor(1, "s1", 1, CENTRE, CENTRE, 0.0).unwrap();
+    steps(&mut core, 60);
+
+    let before = core.position_of(1);
+
+    // twice the cells: the same world coordinates, a disc twice as wide
+    core.load_map(&map_json(CELLS * 2, STEP)).unwrap();
+    steps(&mut core, 1);
+
+    let after = core.position_of(1);
+
+    assert!(
+        (after[0] - before[0]).abs() < 20.0 && (after[1] - before[1]).abs() < 20.0,
+        "a resize must not move a snake: {before:?} -> {after:?}"
+    );
+    assert!(death_event(&mut core).is_none(), "a resize must not kill");
+}
+
+#[test]
+fn a_snake_left_outside_a_shrunken_arena_dies_the_ordinary_way() {
+    let mut core = make_core(0, 0);
+
+    // out by the edge of the current disc, driving along it
+    core.spawn_actor(1, "s1", 1, CENTRE + 1100.0, CENTRE, 90.0)
+        .unwrap();
+    steps(&mut core, 10);
+    let _ = events(&mut core);
+
+    // half the cells: the snake is now well outside the disc
+    core.load_map(&map_json(CELLS / 2, STEP)).unwrap();
+    steps(&mut core, 2);
+
+    let death = death_event(&mut core).expect("the shrink must kill, not strand");
+
+    assert_eq!(death["id"], 1);
+    assert!(death["killer"].is_null(), "the edge has no killer");
+}
+
+#[test]
+fn a_spawn_point_left_outside_the_arena_is_pulled_in() {
+    let mut core = make_core(0, 0);
+
+    // the engine hands out the respawn point of the map IT last loaded, which
+    // after a shrink is a point of the larger disc
+    core.load_map(&map_json(CELLS / 2, STEP)).unwrap();
+    steps(&mut core, 1);
+
+    core.spawn_actor(1, "s1", 1, CENTRE + 1100.0, CENTRE, 180.0)
+        .unwrap();
+    steps(&mut core, 2);
+
+    assert!(
+        death_event(&mut core).is_none(),
+        "a spawn must not be dead on arrival"
+    );
+
+    let position = core.position_of(1);
+    let radius = (CELLS / 2) as f32 * STEP / 2.0;
+    let centre = radius;
+    let distance = ((position[0] - centre).powi(2) + (position[1] - centre).powi(2)).sqrt();
+
+    assert!(distance < radius, "spawned outside the disc: {position:?}");
+}

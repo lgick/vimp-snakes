@@ -30,6 +30,12 @@ function snakeRow({ points = [[100, 200]], angle = 0, radius = 14, crystals = 0,
   return row;
 }
 
+/// The engine's `localPlayer` service, reduced to the one method a part uses.
+/// Ids arrive as object keys of the frame, so they are strings on both sides.
+function localPlayerFor(myId) {
+  return { is: id => String(id) === String(myId) };
+}
+
 describe('Snake', () => {
   it('reads the head out of the first spine point', () => {
     const snake = new Snake(snakeRow({ points: [[100, 200]] }));
@@ -58,7 +64,12 @@ describe('Snake', () => {
 
   it('plays a positional pickup when its crystal count goes up', () => {
     const soundManager = { registerSound: vi.fn() };
-    const snake = new Snake(snakeRow({ crystals: 3 }), {}, { soundManager });
+    const snake = new Snake(
+      snakeRow({ crystals: 3 }),
+      {},
+      { soundManager, localPlayer: localPlayerFor('01') },
+      { id: '01' },
+    );
 
     // the first row establishes the baseline and must not fire
     expect(soundManager.registerSound).not.toHaveBeenCalled();
@@ -80,7 +91,12 @@ describe('Snake', () => {
 
   it('plays the death cue at the head it last had', () => {
     const soundManager = { registerSound: vi.fn() };
-    const snake = new Snake(snakeRow({ points: [[7, 9]] }), {}, { soundManager });
+    const snake = new Snake(
+      snakeRow({ points: [[7, 9]] }),
+      {},
+      { soundManager, localPlayer: localPlayerFor('01') },
+      { id: '01' },
+    );
 
     snake.destroy();
 
@@ -93,6 +109,63 @@ describe('Snake', () => {
     const snake = new Snake(snakeRow());
 
     expect(() => snake.destroy()).not.toThrow();
+  });
+
+  it('says nothing for somebody else\'s snake', () => {
+    const soundManager = { registerSound: vi.fn() };
+    // built for entity '02' while the local player is '01'
+    const snake = new Snake(
+      snakeRow({ crystals: 3 }),
+      {},
+      { soundManager, localPlayer: localPlayerFor('01') },
+      { id: '02' },
+    );
+
+    snake.update(snakeRow({ points: [[10, 20]], crystals: 6 }));
+    snake.destroy();
+
+    // the crystal was still drawn as eaten and the body still left the canvas
+    // — only the two cues are gone
+    expect(soundManager.registerSound).not.toHaveBeenCalled();
+  });
+
+  it('asks who the local player is at cue time, not at construction', () => {
+    const soundManager = { registerSound: vi.fn() };
+    // the local snake is built from the first shot, BEFORE the first player
+    // block: the engine answers null until then, and a flag cached in the
+    // constructor would mute the player for the whole match
+    let myId = null;
+    const localPlayer = { is: id => myId !== null && id === myId };
+    const snake = new Snake(
+      snakeRow({ crystals: 3 }),
+      {},
+      { soundManager, localPlayer },
+      { id: '01' },
+    );
+
+    myId = '01';
+    snake.update(snakeRow({ points: [[10, 20]], crystals: 6 }));
+
+    expect(soundManager.registerSound).toHaveBeenCalledWith('pickup', {
+      position: { x: 10, y: 20 },
+    });
+
+    snake.destroy();
+  });
+
+  it('stays silent, loudly, on an engine without the localPlayer service', () => {
+    const soundManager = { registerSound: vi.fn() };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const snake = new Snake(snakeRow({ crystals: 3 }), {}, { soundManager }, { id: '01' });
+
+    snake.update(snakeRow({ crystals: 6 }));
+    snake.destroy();
+
+    expect(soundManager.registerSound).not.toHaveBeenCalled();
+    // once per part, not once per cue
+    expect(error).toHaveBeenCalledTimes(1);
+
+    error.mockRestore();
   });
 });
 

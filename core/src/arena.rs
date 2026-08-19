@@ -60,6 +60,37 @@ impl Arena {
         dx * dx + dy * dy <= limit * limit
     }
 
+    /// The nearest point of the disc to `point`, `margin` clear of the edge —
+    /// unchanged if it is already inside.
+    ///
+    /// The arena is rebuilt under the running match when the room grows or
+    /// shrinks (`src/host/ArenaScaler.js`), and the respawn point the engine
+    /// hands out with a spawn comes from the map IT last loaded, which may be
+    /// the previous, larger one. A snake dropped outside the disc would die on
+    /// its first step; pulling it in is the difference between "the arena
+    /// shrank" and "the room kills whoever joins during the shrink".
+    ///
+    /// A radius of zero means no map has been loaded yet — there is nothing to
+    /// clamp to, so the point is returned as it came.
+    pub fn clamp_inside(&self, point: [f32; 2], margin: f32) -> [f32; 2] {
+        if self.radius <= 0.0 || self.contains(point, margin) {
+            return point;
+        }
+
+        let dx = point[0] - self.centre[0];
+        let dy = point[1] - self.centre[1];
+        let dist = (dx * dx + dy * dy).sqrt();
+        let limit = (self.radius - margin).max(0.0);
+
+        if dist <= f32::EPSILON {
+            return [self.centre[0], self.centre[1]];
+        }
+
+        let k = limit / dist;
+
+        [self.centre[0] + dx * k, self.centre[1] + dy * k]
+    }
+
     /// A uniformly distributed point of the disc, `margin` clear of the edge.
     ///
     /// `sqrt` on the radius is not decoration: sampling the radius linearly
@@ -104,6 +135,31 @@ mod tests {
 
         assert!(arena.contains([2550.0, 1280.0], 0.0));
         assert!(!arena.contains([2550.0, 1280.0], 60.0));
+    }
+
+    #[test]
+    fn clamp_inside_pulls_an_outside_point_onto_the_margin() {
+        let arena = arena();
+        let point = arena.clamp_inside([4000.0, 1280.0], 60.0);
+
+        assert!(arena.contains(point, 59.0), "{point:?}");
+        assert!((point[0] - (1280.0 + 1220.0)).abs() < 0.01, "{point:?}");
+        assert!((point[1] - 1280.0).abs() < 0.01, "{point:?}");
+    }
+
+    #[test]
+    fn clamp_inside_leaves_an_inside_point_alone() {
+        let arena = arena();
+        let point = arena.clamp_inside([1300.0, 1300.0], 60.0);
+
+        assert_eq!(point, [1300.0, 1300.0]);
+    }
+
+    #[test]
+    fn clamp_inside_without_a_map_is_a_no_op() {
+        let arena = Arena::default();
+
+        assert_eq!(arena.clamp_inside([4000.0, 1280.0], 60.0), [4000.0, 1280.0]);
     }
 
     #[test]

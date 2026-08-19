@@ -2,7 +2,10 @@ import { ENGINE_API_VERSION } from 'vimp-engine/config/opcodes.js';
 import gameConfig from '../config/game.js';
 import authSchema from '../config/auth.js';
 import clientConfig from '../config/client.js';
-import createModules, { getStatBridge } from './createModules.js';
+import createModules, {
+  getArenaScaler,
+  getStatBridge,
+} from './createModules.js';
 import spawnCommand from './spawnCommand.js';
 import systemMessages from './systemMessages.js';
 import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
@@ -55,13 +58,18 @@ export default {
   buildClientGameConfig: () => clientConfig,
 
   // Only `custom` core events reach a plugin — panelSet, panelActive, death
-  // and shake are consumed by the engine itself. This game's core emits three
-  // of them (crystals, death, respawn) because it owns the whole life cycle
-  // the engine would otherwise run; see src/host/StatBridge.js for what they
-  // become, and the note atop src/config/game.js for why.
+  // and shake are consumed by the engine itself. This game's core emits four
+  // of them (crystals, death, respawn, population) because it owns the whole
+  // life cycle the engine would otherwise run; see src/host/StatBridge.js for
+  // what the first three become, and the note atop src/config/game.js for why.
   //
   // The context is exactly { vimp, panel }: no stat, no chat, no participants.
-  onCoreEvent(data, { vimp } = {}) {
-    getStatBridge()?.onCoreEvent(data, vimp);
+  // The bridge needs both halves of it — `panel` for the player's own HUD
+  // cells, `vimp` for the saved profile — so it is handed the context whole.
+  // The scaler needs none of it: everything it touches came from
+  // `createModules` and is held there.
+  onCoreEvent(data, ctx = {}) {
+    getStatBridge()?.onCoreEvent(data, ctx);
+    getArenaScaler()?.onCoreEvent(data);
   },
 };

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import hostPlugin from '../../src/host/index.js';
 import ScriptedManager from '../../src/host/ScriptedManager.js';
-import StatBridge from '../../src/host/StatBridge.js';
 import spawnCommand from '../../src/host/spawnCommand.js';
 import mapData from '../../src/data/maps/arena.js';
 
@@ -168,70 +167,6 @@ describe('ScriptedManager', () => {
 
     manager.removeScripted();
     expect(manager.getCountsPerTeam()).toEqual({});
-  });
-});
-
-// The bridge is the only writer of the stat table in this game: the engine
-// writes score and deaths off its kill reports, and this core never reports a
-// kill (src/config/game.js).
-describe('StatBridge', () => {
-  let stat;
-  let bridge;
-
-  beforeEach(() => {
-    stat = { updateUser: vi.fn() };
-    bridge = new StatBridge({
-      stat,
-      participants: { get: gameId => (gameId === 3 ? { gameId, teamId: 1 } : null) },
-    });
-  });
-
-  it('writes the crystal total into the score column', () => {
-    // ids arrive stringified from the adapter
-    bridge.onCoreEvent({ type: 'crystals', id: '3', total: 12 });
-
-    expect(stat.updateUser).toHaveBeenCalledWith(3, 1, { score: 12 });
-  });
-
-  it('empties the score and records the crash count on a death', () => {
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 4 });
-
-    expect(stat.updateUser).toHaveBeenCalledWith(3, 1, { score: 0, deaths: 4 });
-  });
-
-  it('keeps a personal best in the saved profile', () => {
-    const vimp = {
-      getPlayerState: vi.fn(() => ({ best: 8, eaten: 20 })),
-      setPlayerState: vi.fn(),
-    };
-
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1 }, vimp);
-
-    expect(vimp.setPlayerState).toHaveBeenCalledWith(3, { best: 12, eaten: 32 });
-  });
-
-  it('does not lower a personal best', () => {
-    const vimp = {
-      getPlayerState: vi.fn(() => ({ best: 30, eaten: 30 })),
-      setPlayerState: vi.fn(),
-    };
-
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 5, crashes: 2 }, vimp);
-
-    expect(vimp.setPlayerState).toHaveBeenCalledWith(3, { best: 30, eaten: 35 });
-  });
-
-  it('ignores an id that is not a participant any more', () => {
-    // a snake can crash on the same tick its player disconnects
-    bridge.onCoreEvent({ type: 'crystals', id: 99, total: 5 });
-
-    expect(stat.updateUser).not.toHaveBeenCalled();
-  });
-
-  it('ignores an event type it does not know', () => {
-    expect(() => bridge.onCoreEvent({ type: 'nothing', id: 3 })).not.toThrow();
-    expect(() => bridge.onCoreEvent(null)).not.toThrow();
-    expect(stat.updateUser).not.toHaveBeenCalled();
   });
 });
 

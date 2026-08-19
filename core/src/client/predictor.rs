@@ -89,9 +89,20 @@ pub struct RenderState {
     pub boosting: bool,
 }
 
+/// Everything one replayed step needs to know about the player's intent:
+/// the key mask AND the pointer, which carries a value the mask cannot hold.
+/// Replay walks these, so a pointer target that never entered the history
+/// would be a prediction that quietly disagrees with the host.
+#[derive(Clone, Copy, Default)]
+struct InputSnapshot {
+    keys: u32,
+    aim: Option<[f32; 2]>,
+    pointer_boost: bool,
+}
+
 struct HistoryEntry {
     time: f64,
-    keys: u32,
+    input: InputSnapshot,
 }
 
 pub struct Predictor {
@@ -111,9 +122,9 @@ pub struct Predictor {
     state: SnakeState,
     path: BodyPath,
 
-    keys_mask: u32,
+    input: InputSnapshot,
     history: VecDeque<HistoryEntry>,
-    base_keys_mask: u32,
+    base_input: InputSnapshot,
 
     visual_error: [f32; 2],
 
@@ -143,9 +154,9 @@ impl Predictor {
             pending_reset: true,
             state: SnakeState::default(),
             path: BodyPath::default(),
-            keys_mask: 0,
+            input: InputSnapshot::default(),
             history: VecDeque::new(),
-            base_keys_mask: 0,
+            base_input: InputSnapshot::default(),
             visual_error: [0.0; 2],
             accumulator: 0.0,
             last_update_time: None,
@@ -178,8 +189,8 @@ impl Predictor {
     pub fn reset(&mut self) {
         self.pending_reset = true;
         self.history.clear();
-        self.base_keys_mask = 0;
-        self.keys_mask = 0;
+        self.base_input = InputSnapshot::default();
+        self.input = InputSnapshot::default();
         self.visual_error = [0.0; 2];
         self.accumulator = 0.0;
         self.last_replay = None;
@@ -213,14 +224,37 @@ impl Predictor {
         }
 
         if action == "down" {
-            self.keys_mask |= bit;
+            self.input.keys |= bit;
+
+            // как и у авторитетного `Snake::apply_key`: клавиша поворота
+            // отменяет цель указателя
+            if bit == self.left_bit || bit == self.right_bit {
+                self.input.aim = None;
+            }
         } else if action == "up" {
-            self.keys_mask &= !bit;
+            self.input.keys &= !bit;
         }
 
+        self.push_history(local_time);
+    }
+
+    /// Ввод указателем — той же историей, что и клавиши (`Snake::apply_aim`).
+    pub fn apply_aim(&mut self, x: f32, y: f32, flags: u32, local_time: f64) {
+        if flags & 1 == 0 {
+            self.input.aim = None;
+            self.input.pointer_boost = false;
+        } else {
+            self.input.aim = Some([x, y]);
+            self.input.pointer_boost = flags & 2 != 0;
+        }
+
+        self.push_history(local_time);
+    }
+
+    fn push_history(&mut self, local_time: f64) {
         self.history.push_back(HistoryEntry {
             time: local_time,
-            keys: self.keys_mask,
+            input: self.input,
         });
         self.trim_history(local_time);
     }
@@ -251,7 +285,7 @@ impl Predictor {
         self.accumulator = (self.accumulator + elapsed).min(MAX_ACCUMULATED_TIME);
 
         while self.accumulator >= self.step_ms {
-            self.step(self.keys_mask);
+            self.step(self.input);
             self.accumulator -= self.step_ms;
         }
     }
@@ -284,12 +318,12 @@ impl Predictor {
 
         let server_now_est = local_now + offset;
         let mut history_index = 0;
-        let mut replay_keys = self.base_keys_mask;
+        let mut replay_input = self.base_input;
         let mut replayed = 0;
         let mut t = server_time;
 
         while history_index < self.history.len() && self.history[history_index].time + offset <= t {
-            replay_keys = self.history[history_index].keys;
+            replay_input = self.history[history_index].input;
             history_index += 1;
         }
 
@@ -299,12 +333,12 @@ impl Predictor {
             while history_index < self.history.len()
                 && self.history[history_index].time + offset <= t
             {
-                replay_keys = self.history[history_index].keys;
+                replay_input = self.history[history_index].input;
                 history_index += 1;
                 replayed += 1;
             }
 
-            self.step(replay_keys);
+            self.step(replay_input);
         }
 
         self.accumulator = server_now_est - t;
@@ -362,7 +396,7 @@ impl Predictor {
             return false;
         };
 
-        self.keys_mask & self.boost_bit != 0
+        (self.input.keys & self.boost_bit != 0 || self.input.pointer_boost)
             && self.state.crystals as u32 > model.boost_min_crystals
     }
 
@@ -374,7 +408,7 @@ impl Predictor {
                 break;
             }
 
-            self.base_keys_mask = entry.keys;
+            self.base_input = entry.input;
             self.history.pop_front();
         }
     }
@@ -387,7 +421,7 @@ impl Predictor {
     /// bounded — a snake boosting through its last crystals predicts one
     /// reconciliation's worth of extra speed, and `speed` is a component of
     /// the player block, so `predicted_state` reports it if it ever matters.
-    fn step(&mut self, keys: u32) {
+    fn step(&mut self, input: InputSnapshot) {
         let Some(model) = &self.model else {
             return;
         };
@@ -398,17 +432,19 @@ impl Predictor {
 
         let dt = (self.step_ms / 1000.0) as f32;
 
-        let input = MoveInput {
-            left: keys & self.left_bit != 0,
-            right: keys & self.right_bit != 0,
-            boost: keys & self.boost_bit != 0,
+        let move_input = MoveInput {
+            left: input.keys & self.left_bit != 0,
+            right: input.keys & self.right_bit != 0,
+            boost: input.keys & self.boost_bit != 0 || input.pointer_boost,
+            aim: input.aim,
         };
 
         let can_boost = self.state.crystals as u32 > model.boost_min_crystals;
+        let head = [self.state.x, self.state.y];
 
-        self.state.angle = motion::step_angle(self.state.angle, input, model, dt);
+        self.state.angle = motion::step_angle(head, self.state.angle, move_input, model, dt);
 
-        let speed = motion::speed_of(input, can_boost, model);
+        let speed = motion::speed_of(move_input, can_boost, model);
         let head = motion::advance_head(
             self.state.x,
             self.state.y,
@@ -518,7 +554,6 @@ mod parity {
             },
             "panel": {
                 "crystals": { "value": 0.0 },
-                "length": { "value": 0.0 },
                 "dead": { "value": 0.0 }
             }
         })
@@ -579,7 +614,10 @@ mod parity {
             }
 
             game.step(DT);
-            predictor.step(mask);
+            predictor.step(InputSnapshot {
+                keys: mask,
+                ..InputSnapshot::default()
+            });
         }
 
         let authoritative = game.actor_position(1).unwrap();
@@ -627,6 +665,81 @@ mod parity {
         expect_close(core, replica, 0.5);
     }
 
+    /// Steps both halves through a schedule of pointer events
+    /// ({ step index → (x, y, flags) }) and returns their final head
+    /// positions. The pointer travels the same path as the keys: one call
+    /// into the authoritative sim, one into the predictor's history.
+    fn simulate_aim(steps: usize, schedule: &[(usize, f32, f32, u32)]) -> ([f32; 2], (f32, f32)) {
+        let cfg = game_config();
+        let mut game = GameState::new(engine_config(), &cfg);
+
+        game.load_map(MAP_JSON).unwrap();
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let mut predictor = Predictor::new(STEP_MS, &cfg.player_keys, &cfg.models);
+
+        predictor.set_model("s1");
+        predictor.set_active(true);
+
+        let (start, _) = game.prediction_state(1).unwrap();
+
+        predictor.on_server_state(start, 0.0, 0.0, 0.0);
+
+        let mut input = InputSnapshot::default();
+        let mut seq = 0u32;
+
+        for i in 0..steps {
+            if let Some(&(_, x, y, flags)) = schedule.iter().find(|(step, ..)| *step == i) {
+                seq += 1;
+                game.apply_aim(1, seq, x, y, flags);
+
+                if flags & 1 == 0 {
+                    input.aim = None;
+                    input.pointer_boost = false;
+                } else {
+                    input.aim = Some([x, y]);
+                    input.pointer_boost = flags & 2 != 0;
+                }
+            }
+
+            game.step(DT);
+            predictor.step(input);
+        }
+
+        let authoritative = game.actor_position(1).unwrap();
+        let render = predictor.render_state().unwrap();
+
+        (authoritative, (render.x, render.y))
+    }
+
+    #[test]
+    fn steering_to_a_point_stays_in_step() {
+        // цель сбоку и сзади: змейка доворачивает несколько десятков шагов
+        let (core, replica) = simulate_aim(240, &[(0, 1000.0, 1700.0, 1)]);
+
+        expect_close(core, replica, 0.5);
+    }
+
+    #[test]
+    fn releasing_the_pointer_stays_in_step() {
+        let (core, replica) =
+            simulate_aim(240, &[(0, 1000.0, 1700.0, 1), (60, 1000.0, 1700.0, 0)]);
+
+        expect_close(core, replica, 0.5);
+    }
+
+    #[test]
+    fn a_pointer_target_actually_turns_the_snake() {
+        // без этого предыдущие два теста прошли бы на двух неподвижных углах
+        let (straight, _) = simulate_aim(240, &[]);
+        let (steered, _) = simulate_aim(240, &[(0, 1000.0, 1700.0, 1)]);
+
+        assert!(
+            (steered[1] - straight[1]).abs() > 100.0,
+            "the pointer did not steer: {steered:?} vs {straight:?}"
+        );
+    }
+
     #[test]
     fn boost_is_refused_on_both_halves_without_crystals() {
         // a fresh snake starts at startCrystals (0), below boostMinCrystals,
@@ -661,7 +774,10 @@ mod parity {
 
         for _ in 0..60 {
             game.step(DT);
-            predictor.step(mask);
+            predictor.step(InputSnapshot {
+                keys: mask,
+                ..InputSnapshot::default()
+            });
         }
 
         let render = predictor.render_state().unwrap();
@@ -698,7 +814,7 @@ mod parity {
         predictor.on_server_state(state, 0.0, 0.0, 0.0);
 
         for _ in 0..600 {
-            predictor.step(0);
+            predictor.step(InputSnapshot::default());
         }
 
         let render = predictor.render_state().unwrap();

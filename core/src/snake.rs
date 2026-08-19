@@ -79,6 +79,14 @@ pub struct Snake {
 
     held_keys: u32,
     pending_keys: u32,
+    /// World point the pointer last asked for, while it is held. `None` means
+    /// «steered by the keyboard» — the two sources are exclusive per step.
+    #[serde(default)]
+    aim: Option<[f32; 2]>,
+    /// Boost asked for by the pointer (a double tap held down), the analogue
+    /// of holding the boost key.
+    #[serde(default)]
+    pointer_boost: bool,
     /// Fractional crystals owed to the boost; whole ones are shed as they
     /// accumulate, so the drain rate is exact regardless of the step size.
     boost_debt: f32,
@@ -100,6 +108,8 @@ impl Snake {
             last_input_seq: 0,
             held_keys: 0,
             pending_keys: 0,
+            aim: None,
+            pointer_boost: false,
             boost_debt: 0.0,
         }
     }
@@ -116,6 +126,8 @@ impl Snake {
         self.path.reset(x, y);
         self.held_keys = 0;
         self.pending_keys = 0;
+        self.aim = None;
+        self.pointer_boost = false;
         self.boost_debt = 0.0;
     }
 
@@ -135,8 +147,25 @@ impl Snake {
         MoveInput {
             left: self.held_keys & bits.left != 0,
             right: self.held_keys & bits.right != 0,
-            boost: self.held_keys & bits.boost != 0,
+            boost: self.held_keys & bits.boost != 0 || self.pointer_boost,
+            aim: self.aim,
         }
+    }
+
+    /// One raw pointer event (`GameSim::apply_aim`): bit 0 of `flags` is
+    /// «pressed», bit 1 «this press was a double tap». Releasing the pointer
+    /// drops both the target and the boost — a finger off the glass steers
+    /// nothing. The predictor implements the identical rule.
+    pub fn apply_aim(&mut self, x: f32, y: f32, flags: u32) {
+        if flags & 1 == 0 {
+            self.aim = None;
+            self.pointer_boost = false;
+
+            return;
+        }
+
+        self.aim = Some([x, y]);
+        self.pointer_boost = flags & 2 != 0;
     }
 
     /// One raw wire event. `type: 0` keys are held — `down` sets the bit,
@@ -159,6 +188,12 @@ impl Snake {
 
         if action == "down" {
             self.held_keys |= bit;
+
+            // взявшись за клавиши, игрок отменяет прежнюю цель указателя:
+            // иначе, отпустив A, змейка молча вернулась бы к старой точке
+            if bit & (bits.left | bits.right) != 0 {
+                self.aim = None;
+            }
         } else {
             self.held_keys &= !bit;
         }
@@ -196,10 +231,11 @@ impl Snake {
         outcome.mode_changed = boosting != self.boosting;
         self.boosting = boosting;
 
-        self.angle = motion::step_angle(self.angle, input, model, dt);
+        let head = self.path.head();
+
+        self.angle = motion::step_angle(head, self.angle, input, model, dt);
         self.speed = motion::speed_of(input, can_boost, model);
 
-        let head = self.path.head();
         let next = motion::advance_head(head[0], head[1], self.angle, self.speed, dt);
 
         self.path.advance(next, model.point_spacing);
@@ -284,6 +320,58 @@ mod tests {
 
     fn snake() -> Snake {
         Snake::new("s1", 1, 0, 0.0, 0.0, 0.0)
+    }
+
+    #[test]
+    fn a_held_pointer_sets_the_aim_and_the_boost() {
+        let bits = bits();
+        let mut snake = snake();
+
+        snake.apply_aim(30.0, -10.0, 3);
+
+        let input = snake.input(&bits);
+
+        assert_eq!(input.aim, Some([30.0, -10.0]));
+        assert!(input.boost);
+    }
+
+    #[test]
+    fn releasing_the_pointer_drops_the_aim_and_the_boost() {
+        let bits = bits();
+        let mut snake = snake();
+
+        snake.apply_aim(30.0, -10.0, 3);
+        snake.apply_aim(30.0, -10.0, 0);
+
+        let input = snake.input(&bits);
+
+        assert_eq!(input.aim, None);
+        assert!(!input.boost);
+    }
+
+    #[test]
+    fn a_turn_key_cancels_the_pointer_target() {
+        let bits = bits();
+        let mut snake = snake();
+
+        snake.apply_aim(30.0, -10.0, 1);
+        snake.apply_key("down", bits.left, &bits);
+
+        assert_eq!(snake.input(&bits).aim, None);
+    }
+
+    #[test]
+    fn a_respawn_forgets_the_pointer() {
+        let bits = bits();
+        let mut snake = snake();
+
+        snake.apply_aim(30.0, -10.0, 3);
+        snake.respawn(0.0, 0.0, 0.0, 0);
+
+        let input = snake.input(&bits);
+
+        assert_eq!(input.aim, None);
+        assert!(!input.boost);
     }
 
     #[test]

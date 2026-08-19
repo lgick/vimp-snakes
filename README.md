@@ -14,6 +14,14 @@ crystal the more you grow and the more you score.
 | `W` | boost — nearly double speed, paid for in crystals, which drop behind you |
 | `R` | respawn after a crash (the OK button of the result screen presses it for you) |
 
+Mouse and touch are the second way to play, and the only one a phone has:
+**press and hold** — the snake turns towards the point under the pointer, no
+faster than the keys would turn it; **double tap and keep holding** — boost,
+for as long as the finger stays down. Releasing hands the snake back to
+whatever heading it had, and taking hold of `A`/`D` cancels the pointer
+target. The channel is muted while the chat, the stat table or a vote is
+open, so typing a message never steers the snake.
+
 Three ways it ends and only one of them is your fault:
 
 - your head touches the boundary of the disc — you crash;
@@ -21,8 +29,15 @@ Three ways it ends and only one of them is your fault:
   were carrying scatters over the map where you died;
 - your head touches **your own** tail — nothing happens, it passes over.
 
-The stat table (`Tab`) is a single leaderboard ranked by crystals carried right
-now. Everyone is a player; there are no teams.
+Three numbers follow you, and none of them is reset by a crash: **eaten**
+(crystals swallowed), **kills** (snakes that ran into you) and **score**, which
+is the crystals you ate plus the entire score of everyone you killed. Killing
+the leader is worth the double: you take their whole score, and their crystals
+scatter on the map on top of it. The HUD shows all three; what you are carrying
+right now is told by the size of your snake.
+
+The stat table (`Tab`) is a single leaderboard ranked by score, ties broken by
+crystals eaten. Everyone is a player; there are no teams.
 
 ## Run it
 
@@ -37,6 +52,37 @@ npm run dev
 has been built once Vite fails to resolve the import and `npm run dev` dies on
 startup. The same holds before the master is started against this package,
 even in dev mode — build the core and then `npm run build` at least once.
+
+### In the lobby, against another player
+
+`npm run dev` is a single tab against bots. To play this game through the
+lobby master (two tabs, a real room), link both halves and start the master
+from the engine checkout:
+
+```bash
+# once, in this package and in ~/Sites/my/vimp-tanks
+npm link
+
+# once, in the engine checkout — BOTH games in ONE command, or the second
+# link overwrites the first
+cd ~/Sites/my/vimp
+npm link @vimp-games/tanks @vimp-games/snakes
+
+npm run dev            # master on https://localhost:3002
+```
+
+The master builds its game catalog from `node_modules/@vimp-games/*` when
+`GAMES_MATRIX` is unset, sorted by id — so `snakes` comes first and is the
+lobby's **active** game, which is what makes the `Create server` button
+clickable (the lobby can only host the active game). To pin a different one,
+start the master with the catalog spelled out:
+
+```bash
+GAMES_MATRIX='[{"id":"tanks","package":"@vimp-games/tanks"}]' npm run dev
+```
+
+This package must be built (`npm run core:build && npm run build`) before the
+master starts: the catalog reads `dist/manifest.json`, not the sources.
 
 ## Commands
 
@@ -75,9 +121,9 @@ Only `dist/` is published (`files: ["dist"]`).
 round only ends through a reported kill) and what makes respawning possible at
 all (the engine has no per-player respawn inside a round — its only spawn
 primitive is private to `_startRound`). The consequence is that the engine also
-never writes `score` or `deaths`, which is why `src/host/StatBridge.js` writes
-them instead, off the core's `custom` events. See the note atop
-`src/config/game.js`.
+never writes `score` or `deaths`, which is why `src/host/StatBridge.js` keeps
+the whole scoring model instead — eaten, kills and score, per game id — off the
+core's `custom` events. See the note atop `src/config/game.js`.
 
 **There is no physics.** A snake is a polyline; the arena edge, other bodies
 and crystals are distance tests. The engine's Rapier world is stepped and stays
@@ -90,6 +136,13 @@ fixed field set, and a free-form `gameConfig.parts.*` key reaches the client and
 never the core — so the disc comes out of the map grid by one formula both
 halves apply (`core/src/arena.rs`, `src/client/parts/Arena.js`,
 `src/data/maps/arena.js`).
+
+**The arena grows with the crowd.** The area per snake is the difficulty curve,
+so the grid is a function of how many are in the room: `buildArena(count)` in
+`src/data/maps/arena.js` owns the law, `src/host/ArenaScaler.js` owns when it
+applies, and the core's `population` custom event is what triggers it. The
+resize is a `coreAdapter.createMap` plus a MAP_DATA re-send, not an engine map
+change: the round, the panel and the stat table survive it untouched.
 
 ## Headless verification
 
@@ -104,11 +157,13 @@ npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/movement
 | `movement.json` | cruising and turning, with prediction drift checked against tight thresholds |
 | `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key |
 | `growth.json` | two players, three bots, crystals, the boost, `/spawn` |
+| `pointer.json` | steering to a point with the mouse/finger, the keyboard taking over mid-run, the double-tap boost |
 
-All three are expected to pass with `--determinism`. Two invariants skip by
-design: `roundLifecycle` (this game has no round end) and, in two of the three
+All four are expected to pass with `--determinism`. Two invariants skip by
+design: `roundLifecycle` (this game has no round end) and, in two of the four
 scenarios, `predictionDrift` (a crash and a respawn are legitimate one-off
-spikes — `movement.json` is the one that watches for drift that *grows*).
+spikes — `movement.json` and `pointer.json` are the two that watch for drift
+that *grows*).
 
 ## Sounds without ffmpeg
 
