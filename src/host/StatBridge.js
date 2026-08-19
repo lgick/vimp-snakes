@@ -52,15 +52,23 @@ export default class StatBridge {
   }
 
   // `data` is the payload of a CoreEvent::Custom, `ctx` the `onCoreEvent`
-  // context — `{ vimp, panel }` and nothing else. Ids arrive stringified by
-  // the adapter, so every one of them goes through Number().
+  // context — `{ vimp, panel }` and nothing else.
+  //
+  // ***** IDS ARE STRINGS *****
+  //
+  // The core writes an id as a NUMBER into the JSON payload, while the engine
+  // hands out game ids as strings (`ParticipantManager._nextGameId()` returns
+  // `counter.toString(10)`) and keeps the participants in a Map keyed by them.
+  // `Map.get(0)` therefore misses `'0'`, `_record()` returns null and not a
+  // single cell is ever written — which is exactly what "the panel and the
+  // table stay at zero" looked like. Everything below goes through String().
   onCoreEvent(data, ctx = {}) {
     if (!data || typeof data !== 'object') {
       return;
     }
 
     const { vimp, panel } = ctx;
-    const gameId = Number(data.id);
+    const gameId = String(data.id);
 
     switch (data.type) {
       case 'crystals':
@@ -111,7 +119,7 @@ export default class StatBridge {
 
     const killerId = data.killer === null || data.killer === undefined
       ? null
-      : Number(data.killer);
+      : String(data.killer);
 
     if (killerId !== null && killerId !== gameId) {
       const killer = this._record(killerId);

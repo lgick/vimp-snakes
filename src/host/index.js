@@ -6,7 +6,12 @@ import createModules, {
   getArenaScaler,
   getStatBridge,
 } from './createModules.js';
-import spawnCommand from './spawnCommand.js';
+import botCommand from './botCommand.js';
+import {
+  nameCommand,
+  newRoundCommand,
+  rankCommand,
+} from './metaCommands.js';
 import systemMessages from './systemMessages.js';
 import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 
@@ -43,8 +48,11 @@ export default {
   gameConfig,
   authSchema,
 
-  // REQUIRED array — the engine iterates it unguarded; `[]` for no commands
-  chatCommands: [spawnCommand],
+  // REQUIRED array — the engine iterates it unguarded; `[]` for no commands.
+  // The engine has no chat commands of its own: everything a player can type
+  // is declared here, including the nickname/rank pair that used to be the
+  // engine's (src/host/metaCommands.js).
+  chatCommands: [botCommand, nameCommand, newRoundCommand, rankCommand],
 
   // merged into the engine chat registry by a blind Object.assign: a code in
   // an engine group would overwrite an engine message without a word

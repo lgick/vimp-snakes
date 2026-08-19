@@ -6,5 +6,6 @@
 // Object.assign into its registry, so a code in one of them replaces an engine
 // message with no warning at all — the game picks its own letter instead.
 export default {
-  BOTS_SPAWNED: 'g:0', // client text: '{0} bot(s) spawned'
+  BOTS_SET: 'g:0', // client text: 'Bot snakes in the arena: {0}'
+  BOT_COUNT_INVALID: 'g:1', // client text: 'Invalid bot count'
 };

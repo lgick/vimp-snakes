@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "seed": 4242,
+  "map": "arena",
+  "participants": [
+    {
+      "id": "p1",
+      "name": "Keeper",
+      "model": "s1"
+    }
+  ],
+  "timeline": [
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p1",
+      "team": "players"
+    },
+    {
+      "tick": 10,
+      "op": "chat",
+      "who": "p1",
+      "text": "/bot 6"
+    },
+    {
+      "tick": 400,
+      "op": "chat",
+      "who": "p1",
+      "text": "/bot 2"
+    },
+    {
+      "tick": 800,
+      "op": "chat",
+      "who": "p1",
+      "text": "/bot"
+    },
+    {
+      "tick": 1000,
+      "op": "chat",
+      "who": "p1",
+      "text": "/bot abc"
+    },
+    {
+      "tick": 1200,
+      "op": "chat",
+      "who": "p1",
+      "text": "/bot 0"
+    }
+  ],
+  "unusedSnapshotKeys": [
+    "c1"
+  ],
+  "divergence": null,
+  "ticks": 1600,
+  "dumpTicks": [
+    300,
+    650,
+    1100,
+    1500
+  ]
+}

@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import hostPlugin from '../../src/host/index.js';
 import ScriptedManager from '../../src/host/ScriptedManager.js';
-import spawnCommand from '../../src/host/spawnCommand.js';
+import botCommand from '../../src/host/botCommand.js';
+import {
+  nameCommand,
+  newRoundCommand,
+  rankCommand,
+} from '../../src/host/metaCommands.js';
 import mapData from '../../src/data/maps/arena.js';
 
 // The only playing team of this game: everyone is a snake and there is nothing
@@ -25,13 +30,28 @@ describe('HostPlugin surface', () => {
     expect(Array.isArray(hostPlugin.chatCommands)).toBe(true);
   });
 
-  it('does not shadow an engine chat command', () => {
-    const reserved = ['/name', '/nr', '/timeleft', '/mapname', '/rank'];
+  // the engine has no commands of its own any more: the registry is whatever
+  // this array says, and a name registered twice would silently lose one half
+  it('declares well-formed, unique chat commands', () => {
+    const names = hostPlugin.chatCommands.map(command => command.name);
 
     for (const command of hostPlugin.chatCommands) {
       expect(command.name.startsWith('/')).toBe(true);
-      expect(reserved).not.toContain(command.name);
+      expect(typeof command.handler).toBe('function');
     }
+
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  // the round and the map here never end, so the two engine commands that
+  // reported them would lie — this game simply does not register them
+  it('leaves /timeleft and /mapname unregistered', () => {
+    const names = hostPlugin.chatCommands.map(command => command.name);
+
+    expect(names).toContain('/name');
+    expect(names).toContain('/rank');
+    expect(names).not.toContain('/timeleft');
+    expect(names).not.toContain('/mapname');
   });
 
   it('keeps its system message codes out of the engine groups', () => {
@@ -170,52 +190,115 @@ describe('ScriptedManager', () => {
   });
 });
 
-describe('/spawn', () => {
-  const spawnContext = (created, maxPlayers = 16) => ({
-    chat: { pushSystem: vi.fn() },
+describe('/bot', () => {
+  const botContext = (created, maxPlayers = 16) => ({
+    chat: { pushSystem: vi.fn(), pushSystemByUser: vi.fn() },
     roundManager: { initiateNewRound: vi.fn() },
     participants: { maxPlayers },
-    scripted: { createScripted: vi.fn(() => created) },
+    scripted: { createScripted: vi.fn(() => created), removeScripted: vi.fn() },
   });
 
-  it('reports the number actually created and restarts the round', () => {
-    const ctx = spawnContext(2);
+  it('SETS the count: the old bots go before the new ones are made', () => {
+    const ctx = botContext(3);
 
-    spawnCommand.handler(ctx, 1, ['3']);
+    botCommand.handler(ctx, '1', ['3']);
 
+    expect(ctx.scripted.removeScripted).toHaveBeenCalled();
     expect(ctx.scripted.createScripted).toHaveBeenCalledWith(3);
-    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SPAWNED', [2]);
+    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SET', [3]);
     // the round is endless, so without a restart the new bots would sit as
     // participants with no snake, forever
     expect(ctx.roundManager.initiateNewRound).toHaveBeenCalled();
   });
 
-  it('defaults to a single bot', () => {
-    const ctx = spawnContext(1);
+  it('empties the arena on /bot 0 without restarting the round', () => {
+    const ctx = botContext(0);
 
-    spawnCommand.handler(ctx, 1, []);
+    botCommand.handler(ctx, '1', ['0']);
 
-    expect(ctx.scripted.createScripted).toHaveBeenCalledWith(1);
-  });
-
-  // the argument comes straight from a chat line
-  it('clamps the count to [1, maxPlayers]', () => {
-    const negative = spawnContext(1);
-    const huge = spawnContext(1);
-
-    spawnCommand.handler(negative, 1, ['-3']);
-    spawnCommand.handler(huge, 1, ['1e9']);
-
-    expect(negative.scripted.createScripted).toHaveBeenCalledWith(1);
-    expect(huge.scripted.createScripted).toHaveBeenCalledWith(16);
-  });
-
-  it('does not restart the round when nothing was created', () => {
-    const ctx = spawnContext(0);
-
-    spawnCommand.handler(ctx, 1, ['3']);
-
-    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SPAWNED', [0]);
+    expect(ctx.scripted.removeScripted).toHaveBeenCalled();
+    expect(ctx.scripted.createScripted).not.toHaveBeenCalled();
+    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SET', [0]);
     expect(ctx.roundManager.initiateNewRound).not.toHaveBeenCalled();
+  });
+
+  // the argument comes straight from a chat line: a typo must not wipe the
+  // arena, so there is no default count at all
+  it('refuses a missing or unreadable count and touches nothing', () => {
+    const empty = botContext(1);
+    const junk = botContext(1);
+    const negative = botContext(1);
+
+    botCommand.handler(empty, '1', []);
+    botCommand.handler(junk, '1', ['abc']);
+    botCommand.handler(negative, '1', ['-3']);
+
+    for (const ctx of [empty, junk, negative]) {
+      expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith(
+        '1',
+        'BOT_COUNT_INVALID',
+      );
+      expect(ctx.scripted.removeScripted).not.toHaveBeenCalled();
+      expect(ctx.scripted.createScripted).not.toHaveBeenCalled();
+    }
+  });
+
+  it('clamps the count to maxPlayers', () => {
+    const ctx = botContext(16);
+
+    botCommand.handler(ctx, '1', ['1e9']);
+
+    expect(ctx.scripted.createScripted).toHaveBeenCalledWith(16);
+  });
+
+  it('reports the number actually created, not the number asked for', () => {
+    const ctx = botContext(2);
+
+    botCommand.handler(ctx, '1', ['5']);
+
+    expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SET', [2]);
+  });
+});
+
+// The commands the engine used to own: it has none of its own now, so a game
+// that wants them declares them (src/host/metaCommands.js).
+describe('meta chat commands', () => {
+  const metaContext = (isDevMode = false) => ({
+    chat: { pushSystem: vi.fn(), pushSystemByUser: vi.fn() },
+    roundManager: { changeName: vi.fn(), initiateNewRound: vi.fn() },
+    playerDataSync: { getRank: vi.fn(() => 7) },
+    isDevMode,
+  });
+
+  it('/name hands the whole rest of the line to the engine', () => {
+    const ctx = metaContext();
+
+    nameCommand.handler(ctx, '1', ['Long', 'Snake']);
+
+    expect(ctx.roundManager.changeName).toHaveBeenCalledWith('1', 'Long Snake');
+  });
+
+  it('/nr restarts the round in dev mode only', () => {
+    const dev = metaContext(true);
+    const prod = metaContext(false);
+
+    newRoundCommand.handler(dev, '1', []);
+    newRoundCommand.handler(prod, '1', []);
+
+    expect(dev.roundManager.initiateNewRound).toHaveBeenCalled();
+    expect(prod.roundManager.initiateNewRound).not.toHaveBeenCalled();
+    expect(prod.chat.pushSystemByUser).toHaveBeenCalledWith(
+      '1',
+      'COMMANDS_NOT_FOUND',
+    );
+  });
+
+  it('/rank answers the player alone, with the engine code', () => {
+    const ctx = metaContext();
+
+    rankCommand.handler(ctx, '1', []);
+
+    expect(ctx.playerDataSync.getRank).toHaveBeenCalledWith('1');
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [7]);
   });
 });

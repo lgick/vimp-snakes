@@ -150,7 +150,7 @@ export default {
           m: ['Current map: {0}', 'Next map: {0}'],
           c: ['Command not found', 'Your rank: {0}'],
           n: ['Invalid name', '{0} changed name to {1}'],
-          g: ['{0} bot snake(s) spawned'],
+          g: ['Bot snakes in the arena: {0}', 'Invalid bot count'],
         },
       },
     },
@@ -173,9 +173,9 @@ export default {
         t: 'time',
       },
       // The order here IS the order of the cells: PanelView builds the row by
-      // walking this array (`_buildPanel`). The logo is not among them — the
-      // engine has no cell type for one — so it is drawn by `#panel::before`
-      // in style.css.
+      // walking this array (`_buildPanel`). The game's name is not among them
+      // and needs no cell: the engine ships its own `<h1 id="logo">` above the
+      // panel.
       //
       // The last four are declared but hidden by style.css. Three of them
       // (crystals, dead, mode) are host fields, and invariant 6
@@ -230,10 +230,10 @@ export default {
           mapChangeBySystem: ['Choose the next map'],
           mapChangeByUser: ['{0} suggested the map: {1}', ['Yes', 'No']],
         },
-        menu: [
-          ['teamChange', ['Play / watch', 'teams']],
-          ['mapChange', ['Suggest map', 'maps']],
-        ],
+        // Один пункт: карта в этой игре одна и вечная, предлагать смену
+        // нечему. Шаблоны mapChange* остаются — их рисует движок, если сам
+        // заведёт голосование за карту.
+        menu: [['teamChange', ['Play / watch', 'teams']]],
       },
     },
   },

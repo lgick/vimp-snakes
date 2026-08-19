@@ -22,8 +22,13 @@ score. The edge and other snakes' bodies kill; your own tail does not.
   `core/src/motion.rs` is shared by the host step and the client predictor —
   moving logic out of it desynchronises prediction from the server.
 
-## Four decisions the code depends on
+## Five decisions the code depends on
 
+0. **Game ids are STRINGS.** The engine hands them out as
+   `counter.toString(10)` and keys its participant Map by them, while the core
+   writes them into `custom` events as numbers — everything crossing that seam
+   goes through `String()`. Getting it wrong froze the panel and the stat
+   table at zero (`tests/host/statBridge.integration.test.js` guards it).
 1. **`CoreEvent::Death` is never emitted.** A round only ends through a
    reported kill, and there is no per-player respawn inside a round, so the
    core owns death and respawn outright. The engine therefore never writes
@@ -90,10 +95,18 @@ Headless run, from the **engine** checkout with this package linked:
 npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/<name>.json
 ```
 
-`scenarios/` holds four: `movement` (drift-watching), `crash-and-respawn`,
-`growth` (bots, crystals, boost), `pointer` (mouse/touch steering, also
-drift-watching). All four pass with `--determinism`; `roundLifecycle` skips
-by design, this game has no round end.
+The sim loads the **built** plugin, so `npm run build` first or you are
+testing the previous version. `scenarios/` holds five: `movement`
+(drift-watching), `crash-and-respawn`, `growth` (bots, crystals, boost),
+`pointer` (mouse/touch steering, also drift-watching) and `bots` (`/bot` as a
+set: 6 → 2 → refused → 0). All pass with `--determinism`; `roundLifecycle`
+skips by design, this game has no round end.
+
+Chat commands: the engine parses **none** of its own, so `chatCommands` in
+`src/host/index.js` is the whole set a player can type — `/bot <count>`
+(exact number of bots, `/bot 0` clears them) plus `/name`, `/nr`, `/rank` from
+`src/host/metaCommands.js`. `/timeleft` and `/mapname` are deliberately absent:
+this game has no round or map that ends.
 
 Any functional change updates the tests covering it in the same change;
 `npx eslint .` and `npm test` end every change green.

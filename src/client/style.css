@@ -17,22 +17,6 @@
   text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
 }
 
-/*
- * The logo. The engine has no panel cell type for one — PanelView builds the
- * row out of `modules.panel.fields` and every field there is a value, a bar, a
- * time or a weapon — so the logo is not a cell at all: it is the ::before of
- * the container the engine ships, drawn ahead of the table.
- */
-#panel::before {
-  content: 'VIMP SNAKES';
-  margin-right: 4px;
-  color: #7ef9ff;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  opacity: 0.9;
-}
-
 #panel-eaten::before {
   content: '◆ ';
   color: #7ef9ff;

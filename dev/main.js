@@ -23,6 +23,6 @@ await startStandaloneGame({
   // leave the spectators first and only then ask for bots: the chat command
   // is rejected for a spectator, and a joining participant is one
   startupVotes: [['teamChange', 'players']],
-  startupCommands: ['/spawn 3'],
+  startupCommands: ['/bot 3'],
   devMode: true,
 });

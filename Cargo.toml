@@ -25,11 +25,3 @@ wasm-bindgen = "0.2.126"
 [profile.release]
 opt-level = 3
 lto = true
-
-# TEMPORARY, until `vimp-engine-core` with `apply_aim` is published (stage 4 of
-# plan/snakes-v2): the engine crate is taken from the local checkout, because
-# the trait method the pointer input rides on does not exist in 0.3.2 yet.
-# Remove before any release build and run `cargo update -p vimp-engine-core`
-# (see docs/en/publishing.md in the engine checkout, "Rust side").
-[patch.crates-io]
-vimp-engine-core = { path = "../vimp/packages/engine/core" }

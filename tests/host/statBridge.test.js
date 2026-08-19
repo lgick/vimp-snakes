@@ -7,9 +7,12 @@ import StatBridge from '../../src/host/StatBridge.js';
 // eaten, kills, score — is accumulated here and nowhere else.
 const TEAM_ID = 1;
 
-/// The engine's participant map, reduced to `get`. The objects are stable per
-/// id: the bridge compares them by identity to notice that an id changed
-/// hands, so a fresh object means a fresh player.
+/// The engine's participant map, reduced to `get`. The keys are STRINGS, as
+/// `ParticipantManager._nextGameId()` makes them — a fixture keyed by numbers
+/// is what hid the bug where the bridge looked its ids up as numbers and never
+/// wrote a single cell. The objects are stable per id: the bridge compares them
+/// by identity to notice that an id changed hands, so a fresh object means a
+/// fresh player.
 function participantsFor(ids) {
   const people = new Map(
     ids.map(gameId => [gameId, { gameId, teamId: TEAM_ID }]),
@@ -38,17 +41,19 @@ describe('StatBridge', () => {
   beforeEach(() => {
     stat = { updateUser: vi.fn() };
     panel = { updateUser: vi.fn() };
-    participants = participantsFor([3, 7]);
+    participants = participantsFor(['3', '7']);
     bridge = new StatBridge({ stat, participants });
   });
 
   it('sums the crystals gained, ignoring the carried total', () => {
-    // ids arrive stringified from the adapter; `total` is the carried count,
-    // which a respawn resets and the boost burns without any event at all
+    // the core writes the id as a number and the engine keys its participants
+    // by strings, so both shapes must land on the same record; `total` is the
+    // carried count, which a respawn resets and the boost burns without any
+    // event at all
     bridge.onCoreEvent({ type: 'crystals', id: '3', total: 4, gained: 4 }, { stat });
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 2, gained: 1 }, { stat });
 
-    expect(statOf(stat, 3)).toEqual({ eaten: 5, kills: 0, score: 5 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 5, kills: 0, score: 5 });
   });
 
   it('keeps the counters across a death and a respawn', () => {
@@ -57,7 +62,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'respawn', id: 3 }, {});
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 8, gained: 5 }, {});
 
-    expect(statOf(stat, 3)).toEqual({ eaten: 17, kills: 0, score: 17 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 17, kills: 0, score: 17 });
   });
 
   it('hands the killer the whole score of the victim', () => {
@@ -69,9 +74,9 @@ describe('StatBridge', () => {
       {},
     );
 
-    expect(statOf(stat, 7)).toEqual({ eaten: 5, kills: 1, score: 25 });
+    expect(statOf(stat, '7')).toEqual({ eaten: 5, kills: 1, score: 25 });
     // the victim keeps everything it had earned
-    expect(statOf(stat, 3)).toEqual({ eaten: 20, kills: 0, score: 20 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 20, kills: 0, score: 20 });
   });
 
   it('pays the killer before it touches the victim', () => {
@@ -87,7 +92,7 @@ describe('StatBridge', () => {
 
     const [first] = stat.updateUser.mock.calls;
 
-    expect(first[0]).toBe(7);
+    expect(first[0]).toBe('7');
     expect(first[2].score).toBe(20);
   });
 
@@ -97,23 +102,23 @@ describe('StatBridge', () => {
 
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: null }, {});
 
-    expect(stat.updateUser.mock.calls.every(call => call[0] === 3)).toBe(true);
-    expect(statOf(stat, 3)).toEqual({ eaten: 9, kills: 0, score: 9 });
+    expect(stat.updateUser.mock.calls.every(call => call[0] === '3')).toBe(true);
+    expect(statOf(stat, '3')).toEqual({ eaten: 9, kills: 0, score: 9 });
   });
 
   it('does not pay a snake for running into itself', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 9, gained: 9 }, {});
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: 3 }, {});
 
-    expect(statOf(stat, 3)).toEqual({ eaten: 9, kills: 0, score: 9 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 9, kills: 0, score: 9 });
   });
 
   it('writes the same three numbers into the HUD panel', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { panel });
 
-    expect(panel.updateUser).toHaveBeenCalledWith(3, 'eaten', 4, 'set');
-    expect(panel.updateUser).toHaveBeenCalledWith(3, 'kills', 0, 'set');
-    expect(panel.updateUser).toHaveBeenCalledWith(3, 'score', 4, 'set');
+    expect(panel.updateUser).toHaveBeenCalledWith('3', 'eaten', 4, 'set');
+    expect(panel.updateUser).toHaveBeenCalledWith('3', 'kills', 0, 'set');
+    expect(panel.updateUser).toHaveBeenCalledWith('3', 'score', 4, 'set');
   });
 
   it('starts a game id over when it changes hands', () => {
@@ -121,18 +126,18 @@ describe('StatBridge', () => {
 
     // a player leaves and a new one is given the same id: the engine builds a
     // new Participant, and the counters must not be inherited
-    participants.map.set(3, { gameId: 3, teamId: TEAM_ID });
+    participants.map.set('3', { gameId: '3', teamId: TEAM_ID });
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, {});
 
-    expect(statOf(stat, 3)).toEqual({ eaten: 4, kills: 0, score: 4 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 4, kills: 0, score: 4 });
   });
 
   it('zeroes every counter on an explicit reset', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 12, gained: 12 }, {});
-    bridge.reset(3);
+    bridge.reset('3');
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 2, gained: 2 }, {});
 
-    expect(statOf(stat, 3)).toEqual({ eaten: 2, kills: 0, score: 2 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 2, kills: 0, score: 2 });
   });
 
   it('keeps a personal best of the score in the saved profile', () => {
@@ -144,7 +149,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 12, gained: 12 }, {});
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1 }, { vimp });
 
-    expect(vimp.setPlayerState).toHaveBeenCalledWith(3, { best: 12, eaten: 32 });
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 12, eaten: 32 });
   });
 
   it('does not lower a personal best', () => {
@@ -156,7 +161,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 5, gained: 5 }, {});
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 5, crashes: 2 }, { vimp });
 
-    expect(vimp.setPlayerState).toHaveBeenCalledWith(3, { best: 30, eaten: 35 });
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 30, eaten: 35 });
   });
 
   it('adds each crystal to the lifetime total exactly once', () => {

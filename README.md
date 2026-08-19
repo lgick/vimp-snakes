@@ -156,10 +156,13 @@ npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/movement
 | --- | --- |
 | `movement.json` | cruising and turning, with prediction drift checked against tight thresholds |
 | `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key |
-| `growth.json` | two players, three bots, crystals, the boost, `/spawn` |
+| `growth.json` | two players, three bots, crystals, the boost, `/bot` |
 | `pointer.json` | steering to a point with the mouse/finger, the keyboard taking over mid-run, the double-tap boost |
+| `bots.json` | `/bot <count>` as a SET: six bots, then two, then a refused count, then none |
 
-All four are expected to pass with `--determinism`. Two invariants skip by
+All five are expected to pass with `--determinism`.
+The sim runs the **built** plugin (`dist/`), so `npm run build` before it or
+you are testing the previous version. Two invariants skip by
 design: `roundLifecycle` (this game has no round end) and, in two of the four
 scenarios, `predictionDrift` (a crash and a respawn are legitimate one-off
 spikes — `movement.json` and `pointer.json` are the two that watch for drift
