@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "seed": 5150,
+  "map": "arena",
+  "participants": [
+    { "id": "p1", "name": "Hunter", "model": "s1" },
+    { "id": "p2", "name": "Rival", "model": "s1" }
+  ],
+  "timeline": [
+    { "tick": 0, "op": "join", "who": "p1", "team": "players" },
+    { "tick": 0, "op": "join", "who": "p2", "team": "players" },
+
+    { "tick": 10, "op": "chat", "who": "p1", "text": "/spawn 3" },
+
+    { "tick": 400, "op": "key", "who": "p1", "action": "down", "name": "right" },
+    { "tick": 700, "op": "key", "who": "p1", "action": "up", "name": "right" },
+    { "tick": 800, "op": "key", "who": "p1", "action": "down", "name": "boost" },
+    { "tick": 1100, "op": "key", "who": "p1", "action": "up", "name": "boost" },
+
+    { "tick": 500, "op": "key", "who": "p2", "action": "down", "name": "left" },
+    { "tick": 900, "op": "key", "who": "p2", "action": "up", "name": "left" },
+    { "tick": 1200, "op": "key", "who": "p2", "action": "down", "name": "respawn" },
+    { "tick": 1202, "op": "key", "who": "p2", "action": "up", "name": "respawn" },
+
+    { "tick": 2000, "op": "key", "who": "p1", "action": "down", "name": "left" },
+    { "tick": 2400, "op": "key", "who": "p1", "action": "up", "name": "left" }
+  ],
+  "unusedSnapshotKeys": ["c1"],
+  "divergence": null,
+  "ticks": 3000,
+  "dumpTicks": [1200, 3000]
+}

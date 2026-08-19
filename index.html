@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vimp Snakes — dev</title>
+    <!--
+      No engine stylesheet here: the entry point imports it (and the game CSS),
+      Vite bundles them. Below are only the rules of the SDK container itself.
+
+      #game must be full-screen and positioned: both the interface frame and
+      the canvases mount into it, and the engine's #panel/#stat/#vote are
+      position: absolute — their containing block is the nearest positioned
+      ancestor.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      #game {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script type="module" src="/dev/main.js"></script>
+  </body>
+</html>

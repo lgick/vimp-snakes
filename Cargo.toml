@@ -1,0 +1,27 @@
+# Workspace root of the Rust core. The crate itself lives in core/.
+[workspace]
+members = ["core"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["lgick"]
+
+[workspace.dependencies]
+vimp-engine-core = "0.3.2"
+# insertion order of models/weapons/panel is a contract: the weapon index of
+# the snapshot row is the position of the key in the config, so a HashMap
+# would silently reshuffle it between runs
+indexmap = { version = "2.14.0", features = ["serde"] }
+# enhanced-determinism is mandatory: without it physics diverges between
+# machines, and the host and the client predictor stop agreeing
+rapier2d = { version = "0.34.0", features = ["enhanced-determinism", "serde-serialize"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+wasm-bindgen = "0.2.126"
+
+[profile.release]
+opt-level = 3
+lto = true

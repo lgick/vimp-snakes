@@ -1,0 +1,48 @@
+{
+  "name": "@vimp-games/vimp-snakes",
+  "version": "0.1.0",
+  "description": "Vimp Snakes — a VIMP game plugin",
+  "author": "lgick",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && npm run build:client && npm run build:host && npm run build:assets && npm run build:manifest",
+    "build:client": "vite build --mode client",
+    "build:host": "vite build --mode host",
+    "build:assets": "node ./scripts/export-maps.js && node ./scripts/copy-game-sounds.js && node ./scripts/copy-game-images.js",
+    "build:manifest": "node ./scripts/build-game-manifest.js",
+    "audio:process": "node ./scripts/process-audio.js",
+    "core:build": "npm run core:build:web && npm run core:build:node",
+    "core:build:web": "wasm-pack build core --release --target web --out-dir pkg-web",
+    "core:build:node": "wasm-pack build core --release --target nodejs --out-dir pkg-node",
+    "core:test": "cargo test --workspace",
+    "check:contract": "vimp-contract --game .",
+    "sim": "vimp-sim --game .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "predev": "node ./scripts/copy-game-images.js && node ./scripts/copy-game-sounds.js",
+    "dev": "vite"
+  },
+  "peerDependencies": {
+    "pixi.js": "^8.14.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "eslint": "^9.37.0",
+    "globals": "^16.2.0",
+    "happy-dom": "^20.10.6",
+    "pixi.js": "^8.14.0",
+    "vimp-engine": "^0.10.0",
+    "vite": "^7.1.11",
+    "vitest": "^4.1.9"
+  }
+}

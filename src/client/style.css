@@ -1,0 +1,106 @@
+/*
+ * Styles of the game, imported with ?inline and handed to the engine as a
+ * string (ClientPlugin.styles) — the engine injects them into the document.
+ * The plugin build has no HTML entry, so a plain CSS import would be
+ * auto-injected by Vite into nothing.
+ *
+ * The engine ships the layout of #panel, #stat, #chat and #vote; everything
+ * here is only the look of the cells THIS game declares
+ * (src/config/client.js -> modules.panel.fields), plus the result screen the
+ * game owns outright (src/client/gameOver.js).
+ */
+
+#panel {
+  gap: 16px;
+  font: 600 20px/1 system-ui, sans-serif;
+  color: #e6ecf5;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+}
+
+#panel-crystals::before {
+  content: '◆ ';
+  color: #7ef9ff;
+}
+
+#panel-length::before {
+  content: '↔ ';
+  opacity: 0.7;
+}
+
+#panel-time {
+  opacity: 0.8;
+}
+
+/*
+ * The `dead` cell carries no text for the player — it is the signal the result
+ * screen reads out of PANEL_DATA. It is declared on both halves so that
+ * invariant 6 (panelContract) holds, and hidden here so that a raw number does
+ * not sit in the HUD.
+ */
+#panel-dead {
+  display: none;
+}
+
+/* ***** the result screen ***** */
+
+#snakes-gameover {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(6 10 20 / 62%);
+  font: 400 16px/1.5 system-ui, sans-serif;
+  color: #e6ecf5;
+}
+
+#snakes-gameover[hidden] {
+  display: none;
+}
+
+.snakes-gameover-card {
+  min-width: 260px;
+  padding: 28px 32px;
+  border: 1px solid #39507f;
+  border-radius: 12px;
+  background: #141c30;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+  text-align: center;
+}
+
+.snakes-gameover-card h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.snakes-gameover-score {
+  margin: 0 0 22px;
+  opacity: 0.75;
+}
+
+.snakes-gameover-score span {
+  font-size: 40px;
+  font-weight: 700;
+  color: #7ef9ff;
+  vertical-align: -2px;
+}
+
+.snakes-gameover-card button {
+  min-width: 120px;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 8px;
+  background: #3ab7ff;
+  color: #06182a;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.snakes-gameover-card button:hover,
+.snakes-gameover-card button:focus-visible {
+  background: #7ed0ff;
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+target/
+core/pkg-web/
+core/pkg-node/
+.debug/
+_*

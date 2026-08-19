@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "seed": 3812,
+  "map": "arena",
+  "participants": [
+    {
+      "id": "p1",
+      "name": "Cruiser",
+      "model": "s1"
+    }
+  ],
+  "timeline": [
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p1",
+      "team": "players"
+    },
+    {
+      "tick": 60,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "right"
+    },
+    {
+      "tick": 180,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "right"
+    },
+    {
+      "tick": 300,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "left"
+    },
+    {
+      "tick": 460,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "left"
+    },
+    {
+      "tick": 600,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "right"
+    },
+    {
+      "tick": 660,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "left"
+    },
+    {
+      "tick": 720,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "right"
+    },
+    {
+      "tick": 900,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "left"
+    }
+  ],
+  "unusedSnapshotKeys": [
+    "c1"
+  ],
+  "divergence": {
+    "thresholds": [
+      8,
+      8,
+      0.2,
+      0.2
+    ],
+    "defaultThreshold": 1000000
+  },
+  "ticks": 1200,
+  "dumpTicks": [
+    600,
+    1200
+  ]
+}
