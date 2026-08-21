@@ -10,13 +10,6 @@
  * game owns outright (src/client/gameOver.js).
  */
 
-#panel {
-  gap: 16px;
-  font: 600 20px/1 system-ui, sans-serif;
-  color: #e6ecf5;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
-}
-
 #panel-eaten::before {
   content: '◆ ';
   color: #7ef9ff;
