@@ -179,8 +179,8 @@ positionally by `src/client/parts/Snake.js`.
 
 ## Engine
 
-- `vimp-engine` `^0.10.0`
-- `vimp-engine-core` `0.3.2`
+The engine versions this game builds against are the pins themselves —
+`vimp-engine` in `package.json` and `vimp-engine-core` in `Cargo.toml`.
 
 Game id: `snakes`. The plugin contract lives in the engine repository
 under `docs/ai/`.
