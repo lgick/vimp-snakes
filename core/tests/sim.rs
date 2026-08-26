@@ -56,6 +56,8 @@ fn flat_config_json(start_crystals: u32, max_crystals: usize) -> serde_json::Val
                 "baseSpeed": 260.0,
                 "boostFactor": 1.9,
                 "turnSpeed": 3.4,
+                "turnSpeedFalloff": 0.18,
+                "turnSpeedMin": 1.4,
                 "baseRadius": 14.0,
                 "radiusGain": 1.6,
                 "baseLength": 150.0,
@@ -74,7 +76,11 @@ fn flat_config_json(start_crystals: u32, max_crystals: usize) -> serde_json::Val
                     ],
                     "dropRatio": 0.8,
                     "edgeMargin": 60.0,
-                    "startCrystals": start_crystals
+                    "startCrystals": start_crystals,
+                    // no spawn grace: every case below is about a snake that
+                    // moves, kills or dies from its first step. The grace has
+                    // its own cases in `core/src/game.rs`
+                    "spawnGraceSeconds": 0.0
                 }
             }
         },
@@ -275,10 +281,13 @@ fn a_head_into_another_body_kills_only_the_one_that_ran_in() {
 
     let laid = core.position_of(1);
 
-    // and the newcomer spawns on that body, well behind its head
-    core.spawn_actor(2, "s1", 1, laid[0] - 90.0, CENTRE, 180.0)
+    // and the newcomer starts clear of it — a spawn ON a body is relocated by
+    // the clearance search now — and drives across it side-on: 150 units of
+    // approach at 260/s, into the middle of a body that is 150 long and
+    // travelling the other way
+    core.spawn_actor(2, "s1", 1, laid[0] + 75.0, CENTRE + 150.0, 270.0)
         .unwrap();
-    steps(&mut core, 1);
+    steps(&mut core, 80);
 
     assert!(!core.is_alive(2), "running into a body is fatal");
     assert!(core.is_alive(1), "being run into is not");

@@ -153,6 +153,33 @@ export default class ArenaScaler {
     }
   }
 
+  // Re-sends the map in force to the core and to every client, without
+  // touching the hysteresis.
+  //
+  // The engine's `RoundManager._startRound` hands the core `this._scaledMapData`
+  // — the map the ROOM was loaded with, which is the base size and not the one
+  // this class put in force. Anything that restarts the round therefore silently
+  // reverts the arena to twenty cells, and the snakes it respawns are packed
+  // into the middle of a disc that is about to grow back around them. `/bot N`
+  // is the one path in this game that restarts a round (src/host/botCommand.js),
+  // so it calls this immediately afterwards.
+  //
+  // `_size` and `_population` are deliberately left alone: nothing about the
+  // crowd changed, only what the core happens to be holding.
+  reapply() {
+    if (!this._mapData) {
+      return;
+    }
+
+    this._coreAdapter.createMap(this._mapData);
+    this._scriptedManager?.createMap(this._mapData);
+
+    // every client has to be told again: the engine's round restart re-sent
+    // them the base map too
+    this._delivered.clear();
+    this._broadcast();
+  }
+
   // The map currently in force, or null before the first population report.
   get mapData() {
     return this._mapData ?? null;

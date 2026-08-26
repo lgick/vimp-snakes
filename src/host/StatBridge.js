@@ -22,17 +22,18 @@
 //
 //   eaten  — crystals swallowed, summed over every life;
 //   kills  — snakes that crashed into this one;
-//   score  — eaten plus the WHOLE score of everyone this snake killed.
+//   score  — eaten plus KILL_BONUS per kill.
 //
 // The core reports the crystals GAINED on a pickup, not just the new carried
 // total, and that is what these add up. Diffing totals on this side would be
 // wrong in both directions: a respawn hands out `world.startCrystals` without
 // an event, and the boost burns fuel without one either.
 //
-// A kill hands over the victim's entire score, deliberately: the victim's
-// crystals scatter on the map on top of that, so killing a leader is worth
-// twice. The transfer reads the victim's score BEFORE the victim's own death
-// bookkeeping runs — the other order would award nothing for the kill.
+// A kill pays a FIXED bonus and nothing else: the victim's score is not
+// transferred and not lost. Handing over the whole score used to be the rule,
+// but the victim's crystals already scatter on the map for the killer to eat,
+// so the transfer was a second reward on top of the first and the leaders'
+// scores ran away.
 //
 // There is no round in this game, so there is no moment to reset on either.
 // The counters start at zero when a participant is first seen and are dropped
@@ -43,6 +44,10 @@
 // All the stat columns are declared with `bodyMethod: '='` and every panel
 // write is a 'set': these are totals, not deltas, so a re-sent value is
 // harmless and a dropped one self-heals on the next event.
+// What one kill is worth in `score`, on top of the victim's crystals that
+// scatter on the map anyway.
+const KILL_BONUS = 15;
+
 export default class StatBridge {
   constructor({ participants, stat }) {
     this._participants = participants;
@@ -107,9 +112,9 @@ export default class StatBridge {
     this._publish(gameId, record, panel);
   }
 
-  // A death pays the killer first and only then touches the victim: the payout
-  // is the victim's score at the moment of the crash, and the victim's own
-  // record is what holds it.
+  // A death pays the killer a flat KILL_BONUS and then touches the victim. A
+  // suicide (`killer === gameId`) and a crash into the edge (`killer === null`)
+  // pay nobody.
   _onDeath(gameId, data, vimp, panel) {
     const victim = this._record(gameId);
 
@@ -126,7 +131,7 @@ export default class StatBridge {
 
       if (killer) {
         killer.kills += 1;
-        killer.score += victim.score;
+        killer.score += KILL_BONUS;
 
         this._publish(killerId, killer, panel);
       }

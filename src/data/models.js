@@ -26,9 +26,17 @@ export default {
     // multiplier while `boost` is held
     boostFactor: 1.9,
 
-    // radians per second. Fast enough to circle a rival, slow enough that a
+    // radians per second at zero crystals — the BASE of the turn rate, not
+    // the whole of it. Fast enough to circle a rival, slow enough that a
     // long snake cannot fold onto its own neck
     turnSpeed: 3.4,
+
+    // turnSpeed(c) = max(turnSpeedMin, turnSpeed - turnSpeedFalloff *
+    // sqrt(crystals)). The mirror image of radiusGain: the fatter a snake
+    // grows the heavier it steers, but never below the floor — a leader must
+    // stay steerable, only stop being nimble
+    turnSpeedFalloff: 0.18,
+    turnSpeedMin: 1.4,
 
     // ***** body *****
 
@@ -88,6 +96,11 @@ export default {
 
       // starting crystal count of a freshly spawned or respawned snake
       startCrystals: 0,
+
+      // seconds a fresh snake stays frozen and untouchable: it does not move,
+      // does not kill and cannot be killed, and blinks on every client. Long
+      // enough for a rival flying at the spawn point to steer around it
+      spawnGraceSeconds: 2,
     },
   },
 };

@@ -60,6 +60,10 @@ pub struct WorldConfig {
     /// World units a natural spawn keeps clear of the arena edge.
     pub edge_margin: f32,
     pub start_crystals: u32,
+    /// Seconds a freshly spawned snake stays frozen and untouchable — it
+    /// neither moves nor kills nor dies, and the client blinks it (bit 1 of
+    /// the `boost` byte).
+    pub spawn_grace_seconds: f32,
 }
 
 /// One snake class (`src/data/models.js`).
@@ -70,8 +74,14 @@ pub struct SnakeConfig {
     pub base_speed: f32,
     /// Speed multiplier while `boost` is held.
     pub boost_factor: f32,
-    /// Turn rate (radians per second).
+    /// Turn rate at zero crystals (radians per second) — the BASE, see
+    /// `motion::turn_speed_for`.
     pub turn_speed: f32,
+    /// Radians per second lost per `sqrt(crystals)`.
+    pub turn_speed_falloff: f32,
+    /// Floor of the turn rate: however fat a snake gets, it turns at least
+    /// this fast.
+    pub turn_speed_min: f32,
 
     /// Half-thickness at zero crystals.
     pub base_radius: f32,
@@ -207,6 +217,8 @@ pub(crate) mod fixtures {
             "baseSpeed": 260.0,
             "boostFactor": 1.9,
             "turnSpeed": 3.4,
+            "turnSpeedFalloff": 0.18,
+            "turnSpeedMin": 1.4,
             "baseRadius": 14.0,
             "radiusGain": 1.6,
             "baseLength": 150.0,
@@ -225,7 +237,8 @@ pub(crate) mod fixtures {
                 ],
                 "dropRatio": 0.8,
                 "edgeMargin": 60.0,
-                "startCrystals": 0
+                "startCrystals": 0,
+                "spawnGraceSeconds": 2.0
             }
         })
     }

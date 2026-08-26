@@ -65,7 +65,7 @@ describe('StatBridge', () => {
     expect(statOf(stat, '3')).toEqual({ eaten: 17, kills: 0, score: 17 });
   });
 
-  it('hands the killer the whole score of the victim', () => {
+  it('pays the killer a flat bonus of 15 per kill', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 20, gained: 20 }, {});
     bridge.onCoreEvent({ type: 'crystals', id: 7, total: 5, gained: 5 }, {});
 
@@ -74,26 +74,23 @@ describe('StatBridge', () => {
       {},
     );
 
-    expect(statOf(stat, '7')).toEqual({ eaten: 5, kills: 1, score: 25 });
+    // 5 eaten + one kill worth KILL_BONUS, and nothing of the victim's 20
+    expect(statOf(stat, '7')).toEqual({ eaten: 5, kills: 1, score: 20 });
     // the victim keeps everything it had earned
     expect(statOf(stat, '3')).toEqual({ eaten: 20, kills: 0, score: 20 });
   });
 
-  it('pays the killer before it touches the victim', () => {
-    // the order is the whole point: reading the victim's score after its own
-    // bookkeeping would award nothing for killing the leader
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 20, gained: 20 }, {});
-    stat.updateUser.mockClear();
+  it('takes nothing away from a victim with a big score', () => {
+    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 500, gained: 500 }, {});
 
     bridge.onCoreEvent(
-      { type: 'death', id: 3, crystals: 20, crashes: 1, killer: 7 },
+      { type: 'death', id: 3, crystals: 500, crashes: 1, killer: 7 },
       {},
     );
 
-    const [first] = stat.updateUser.mock.calls;
-
-    expect(first[0]).toBe('7');
-    expect(first[2].score).toBe(20);
+    // killing the leader is worth the same 15 as killing a fresh snake
+    expect(statOf(stat, '7')).toEqual({ eaten: 0, kills: 1, score: 15 });
+    expect(statOf(stat, '3')).toEqual({ eaten: 500, kills: 0, score: 500 });
   });
 
   it('awards nothing when the arena edge did the killing', () => {

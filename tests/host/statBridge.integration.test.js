@@ -76,7 +76,7 @@ describe('StatBridge against the engine modules', () => {
     );
   });
 
-  it('hands a killer the victim score through the same path', () => {
+  it('pays a killer the kill bonus through the same path', () => {
     const victimId = participants.createScripted({
       team: TEAM,
       model: gameConfig.scripted.defaultModel,
@@ -105,6 +105,6 @@ describe('StatBridge against the engine modules', () => {
     const [, , columns] = rows.find(row => row[0] === gameId);
 
     expect(columns[gameConfig.stat.kills.key]).toBe(1);
-    expect(columns[gameConfig.stat.score.key]).toBe(9);
+    expect(columns[gameConfig.stat.score.key]).toBe(15);
   });
 });

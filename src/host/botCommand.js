@@ -1,3 +1,5 @@
+import { getArenaScaler } from './createModules.js';
+
 // Chat command '/bot <count>' — sets the number of bot snakes in the arena
 // without a vote. It is also what `npm run dev` uses to get a match going
 // (startupCommands in dev/main.js).
@@ -58,6 +60,14 @@ export default {
     // restart — `removeScripted` takes the actors out of the core itself.
     if (created > 0) {
       ctx.roundManager.initiateNewRound();
+
+      // ...and the restart hands the core the map the ROOM was loaded with,
+      // which is the BASE size — not the one the scaler put in force. Without
+      // this the bots are placed on a twenty-cell disc that grows back around
+      // them a tick later, which is exactly the heap in the middle '/bot 20'
+      // used to produce. Null before the first population report, and then
+      // there is nothing to restore.
+      getArenaScaler()?.reapply();
     }
   },
 };

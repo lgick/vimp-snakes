@@ -43,7 +43,7 @@ describe('arenaSizeFor', () => {
 });
 
 describe('buildArena', () => {
-  it('keeps every respawn point inside the disc, facing the centre', () => {
+  it('keeps every respawn point inside the disc, roughly facing the centre', () => {
     for (const count of [0, 12, 32]) {
       const mapData = buildArena(count);
       const radius = (sizeOf(mapData) * mapData.step) / 2;
@@ -54,13 +54,31 @@ describe('buildArena', () => {
 
         expect(Math.hypot(dx, dy)).toBeLessThan(radius);
 
-        // the point faces the centre: the heading and the vector to the
-        // centre agree to within the rounding of a whole degree
+        // the point faces the centre, fanned off it by up to 25 degrees: dead
+        // on the centre means one wave of spawns converges on one spot
         const toCentre = (Math.atan2(-dy, -dx) * 180) / Math.PI;
         const diff = Math.abs(((angle - toCentre + 540) % 360) - 180);
 
-        expect(diff).toBeLessThan(1);
+        expect(diff).toBeLessThanOrEqual(26);
       }
+    }
+  });
+
+  // the engine hands the points out strictly by index, so a small room only
+  // ever sees the head of this list. A prefix that hugs the middle is what put
+  // every joiner in a heap at the centre of the disc.
+  it('spreads every prefix of the list over the whole disc', () => {
+    const mapData = buildArena(0);
+    const radius = (sizeOf(mapData) * mapData.step) / 2;
+    const points = mapData.respawns.players;
+    const radiusOf = ([x, y]) => Math.hypot(x - radius, y - radius);
+
+    for (const prefix of [8, 16, 32]) {
+      const reach = Math.max(...points.slice(0, prefix).map(radiusOf));
+
+      // RESPAWN_SPAN is 0.72 of the arena radius: the prefix must reach past
+      // half of that, not crawl outwards from the centre
+      expect(reach).toBeGreaterThan(radius * 0.72 * 0.5);
     }
   });
 
@@ -180,6 +198,39 @@ describe('ArenaScaler', () => {
       's1',
       's2',
     ]);
+  });
+
+  // the engine's round restart hands the core the map the ROOM was loaded
+  // with — the base size — so anything that restarts a round has to put the
+  // size in force back (src/host/botCommand.js)
+  it('re-sends the map in force without touching the hysteresis', () => {
+    scaler.onCoreEvent({ type: 'population', count: 20 });
+
+    const inForce = scaler.mapData;
+
+    coreAdapter.createMap.mockClear();
+    scripted.createMap.mockClear();
+    socketManager.sendMap.mockClear();
+
+    scaler.reapply();
+
+    expect(coreAdapter.createMap).toHaveBeenCalledWith(inForce);
+    expect(scripted.createMap).toHaveBeenCalledWith(inForce);
+    expect(socketManager.sendMap.mock.calls.map(call => call[0])).toEqual([
+      's1',
+      's2',
+    ]);
+
+    // the crowd did not change, so neither does what a shrink waits for
+    scaler.onCoreEvent({ type: 'population', count: 19 });
+    expect(scaler.mapData).toBe(inForce);
+  });
+
+  it('has nothing to re-send before the first population report', () => {
+    scaler.reapply();
+
+    expect(coreAdapter.createMap).not.toHaveBeenCalled();
+    expect(socketManager.sendMap).not.toHaveBeenCalled();
   });
 
   it('forgets the clients that left', () => {

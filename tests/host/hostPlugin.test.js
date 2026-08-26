@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import hostPlugin from '../../src/host/index.js';
 import ScriptedManager from '../../src/host/ScriptedManager.js';
 import botCommand from '../../src/host/botCommand.js';
+import { getArenaScaler } from '../../src/host/createModules.js';
 import {
   nameCommand,
   newRoundCommand,
@@ -191,6 +192,28 @@ describe('ScriptedManager', () => {
 });
 
 describe('/bot', () => {
+  // the command reaches the scaler through the module-scope handle
+  // `createModules` sets — the same trick StatBridge uses, because a chat
+  // command's context has neither the core adapter nor the socket manager in
+  // it. So the modules have to exist before the handle answers.
+  function buildArenaScaler() {
+    hostPlugin.createModules({
+      participants: { getHumans: () => [], maxPlayers: 16 },
+      coreAdapter: { createMap: vi.fn() },
+      socketManager: { sendMap: vi.fn() },
+      panel: { reset: vi.fn() },
+      stat: {},
+      chat: {},
+      scripted: {},
+    });
+
+    const scaler = getArenaScaler();
+
+    vi.spyOn(scaler, 'reapply').mockImplementation(() => {});
+
+    return scaler;
+  }
+
   const botContext = (created, maxPlayers = 16) => ({
     chat: { pushSystem: vi.fn(), pushSystemByUser: vi.fn() },
     roundManager: { initiateNewRound: vi.fn() },
@@ -257,6 +280,28 @@ describe('/bot', () => {
     botCommand.handler(ctx, '1', ['5']);
 
     expect(ctx.chat.pushSystem).toHaveBeenCalledWith('BOTS_SET', [2]);
+  });
+
+  // the restart above hands the core `RoundManager._scaledMapData` — the map
+  // the ROOM was loaded with, which is the BASE size and not the one the
+  // scaler put in force. Without the re-apply, '/bot 20' places twenty snakes
+  // on a twenty-cell disc that grows back around them a tick later.
+  it('puts the size in force back after the restart', () => {
+    const scaler = buildArenaScaler();
+    const ctx = botContext(3);
+
+    botCommand.handler(ctx, '1', ['3']);
+
+    expect(scaler.reapply).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the arena alone when nothing was restarted', () => {
+    const scaler = buildArenaScaler();
+    const ctx = botContext(0);
+
+    botCommand.handler(ctx, '1', ['0']);
+
+    expect(scaler.reapply).not.toHaveBeenCalled();
   });
 });
 

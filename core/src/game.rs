@@ -56,6 +56,31 @@ const RESPAWN_CLEARANCE: f32 = 140.0;
 /// How far ahead a bot looks when deciding whether it is about to die.
 const BOT_LOOKAHEAD: f32 = 220.0;
 
+/// The spiral `find_spawn_from` walks: the same sunflower the map's respawn
+/// points are built on (`src/data/maps/arena.js`), so the two agree on what a
+/// well-spread arena looks like. A power of two — the walk is bit-reversed.
+const SPAWN_SLOTS: u32 = 64;
+const SPAWN_SLOT_BITS: u32 = 6;
+
+/// Fraction of the radius the outermost candidate reaches; `RESPAWN_SPAN` in
+/// `src/data/maps/arena.js`.
+const RESPAWN_SPAN: f32 = 0.72;
+
+/// pi * (3 - sqrt 5)
+const GOLDEN_ANGLE: f32 = 2.399_963_2;
+
+/// Reverses the low `SPAWN_SLOT_BITS` bits of `i`, turning a counter into the
+/// van der Corput sequence: every prefix of the walk samples the whole disc.
+fn reverse_bits(i: u32) -> u32 {
+    let mut out = 0;
+
+    for bit in 0..SPAWN_SLOT_BITS {
+        out = (out << 1) | ((i >> bit) & 1);
+    }
+
+    out
+}
+
 /// Marker type binding the config and the simulation together.
 pub struct SnakesGame;
 
@@ -162,8 +187,17 @@ impl SnakesSim {
             radius: snake.radius(model),
             crystals: snake.crystals.min(u16::MAX as u32) as u16,
             color: snake.color,
-            boost: snake.boosting as u8,
+            boost: Self::boost_byte(snake),
         })
+    }
+
+    /// The `boost` byte of the wire row. Two flags, not one: bit 0 is the
+    /// boost, bit 1 the spawn grace the client blinks on
+    /// (`src/client/parts/Snake.js`). Packed into the existing byte on
+    /// purpose — the width and the field order of `s1` are contract
+    /// (`tests/config/contract.test.js`).
+    fn boost_byte(snake: &Snake) -> u8 {
+        snake.boosting as u8 | (snake.in_grace() as u8) << 1
     }
 
     /// The panel value that follows the crystal count: how much the snake is
@@ -183,6 +217,23 @@ impl SnakesSim {
         });
     }
 
+    /// Is there room for a snake at `point` — no living body within
+    /// `RESPAWN_CLEARANCE` of it?
+    fn is_clear(&self, point: [f32; 2]) -> bool {
+        self.snakes
+            .values()
+            .all(|other| !other.alive || !other.path.touches(point, RESPAWN_CLEARANCE, 0))
+    }
+
+    /// `point` with a heading straight at the arena centre: a fresh snake must
+    /// never start by driving at the edge it cannot cross.
+    fn facing_centre(&self, point: [f32; 2]) -> [f32; 3] {
+        let dx = self.arena.centre[0] - point[0];
+        let dy = self.arena.centre[1] - point[1];
+
+        [point[0], point[1], dy.atan2(dx).to_degrees()]
+    }
+
     /// A spot far enough from every existing body to be worth spawning on.
     /// Falls back to a map respawn point, and then to the arena centre — a
     /// crowded arena must still hand out a position rather than refuse one.
@@ -190,18 +241,8 @@ impl SnakesSim {
         for _ in 0..RESPAWN_ATTEMPTS {
             let point = self.arena.random_point(rng, self.world.edge_margin);
 
-            let clear = self.snakes.values().all(|other| {
-                !other.alive || !other.path.touches(point, RESPAWN_CLEARANCE, 0)
-            });
-
-            if clear {
-                // face the centre: a fresh snake must never start by driving
-                // straight at the edge it cannot cross
-                let dx = self.arena.centre[0] - point[0];
-                let dy = self.arena.centre[1] - point[1];
-                let angle = dy.atan2(dx).to_degrees();
-
-                return [point[0], point[1], angle];
+            if self.is_clear(point) {
+                return self.facing_centre(point);
             }
         }
 
@@ -209,6 +250,47 @@ impl SnakesSim {
             .first()
             .copied()
             .unwrap_or([self.arena.centre[0], self.arena.centre[1], 0.0])
+    }
+
+    /// The same search without an `Rng`, for the one path that has none: the
+    /// engine's `spawn_actor`, whose signature it dictates.
+    ///
+    /// The engine hands out the map's respawn points strictly by index and has
+    /// no idea which of them are occupied — `RoundManager.changeTeam` derives
+    /// the index from the team SIZE, so a series of joins and leaves lands two
+    /// players on one point. So the requested spot is honoured when it is free
+    /// and searched around when it is not.
+    ///
+    /// The candidates are the sunflower spiral of `src/data/maps/arena.js`,
+    /// walked in bit-reversed order for the same reason as there: any prefix of
+    /// that order covers the whole disc, while the plain order crawls outwards
+    /// from the middle. The walk starts at `seed` (the game id), so two snakes
+    /// spawning on the same tick do not try the same spots in the same order.
+    fn find_spawn_from(&self, seed: u32, requested: [f32; 3]) -> [f32; 3] {
+        // no disc yet — `Arena` is rebuilt from `ctx.map` on the fixed step and
+        // there has not been one. There is nothing to search, so the engine's
+        // point stands, exactly as it did before this search existed.
+        if self.arena.radius <= 0.0 || self.is_clear([requested[0], requested[1]]) {
+            return requested;
+        }
+
+        let limit = (self.arena.radius - self.world.edge_margin).max(0.0) * RESPAWN_SPAN;
+
+        for attempt in 0..RESPAWN_ATTEMPTS as u32 {
+            let k = reverse_bits(seed.wrapping_add(attempt) % SPAWN_SLOTS);
+            let r = limit * ((k as f32 + 0.5) / SPAWN_SLOTS as f32).sqrt();
+            let theta = k as f32 * GOLDEN_ANGLE;
+            let point = [
+                self.arena.centre[0] + theta.cos() * r,
+                self.arena.centre[1] + theta.sin() * r,
+            ];
+
+            if self.is_clear(point) {
+                return self.facing_centre(point);
+            }
+        }
+
+        requested
     }
 
     /// Kills a snake: the crystals it carried go back onto the map along the
@@ -301,7 +383,9 @@ impl SnakesSim {
             return;
         };
 
-        snake.respawn(spot[0], spot[1], spot[2], start);
+        let grace = self.world.spawn_grace_seconds;
+
+        snake.respawn(spot[0], spot[1], spot[2], start, grace);
 
         let Some(model) = self.models.get(&snake.model) else {
             return;
@@ -464,7 +548,19 @@ impl GameSim<SnakesGame> for SnakesSim {
 
         let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
 
-        let mut snake = Snake::new(model_name, team_id, color, x, y, angle_deg);
+        // the engine's point is a suggestion, not a placement: it does not know
+        // which of them are occupied
+        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg]);
+
+        let mut snake = Snake::new(
+            model_name,
+            team_id,
+            color,
+            x,
+            y,
+            angle_deg,
+            self.world.spawn_grace_seconds,
+        );
 
         snake.crystals = self.world.start_crystals;
 
@@ -505,11 +601,13 @@ impl GameSim<SnakesGame> for SnakesSim {
         angle_deg: f32,
     ) {
         let start = self.world.start_crystals;
+        let grace = self.world.spawn_grace_seconds;
         let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
+        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg]);
 
         if let Some(snake) = self.snakes.get_mut(&game_id) {
             snake.team_id = team_id;
-            snake.respawn(x, y, angle_deg, start);
+            snake.respawn(x, y, angle_deg, start, grace);
         }
 
         self.field.request_resync();
@@ -543,7 +641,18 @@ impl GameSim<SnakesGame> for SnakesSim {
         y: f32,
         angle_deg: f32,
     ) -> Result<(), String> {
-        self.spawn_actor(world, events, game_id, model_name, team_id, x, y, angle_deg)?;
+        // a bot HAS an rng, so it gets the ordinary randomised search rather
+        // than the deterministic walk `spawn_actor` falls back to
+        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
+        let spot = if self.is_clear([x, y]) {
+            [x, y, angle_deg]
+        } else {
+            self.find_spawn(rng, &[[x, y, angle_deg]])
+        };
+
+        self.spawn_actor(
+            world, events, game_id, model_name, team_id, spot[0], spot[1], spot[2],
+        )?;
 
         self.bots.entry(game_id).or_insert(Bot {
             timer: rng.range(0.2, 1.0),
@@ -716,6 +825,15 @@ impl GameSim<SnakesGame> for SnakesSim {
                 continue;
             }
 
+            // the spawn grace: frozen in place, so the step is spent burning
+            // the grace down instead of moving. Sections 2 and 3 skip it too —
+            // it neither kills nor dies nor eats while it blinks
+            if snake.in_grace() {
+                snake.tick_grace(dt);
+
+                continue;
+            }
+
             let Some(model) = self.models.get(&snake.model) else {
                 continue;
             };
@@ -744,7 +862,7 @@ impl GameSim<SnakesGame> for SnakesSim {
         let mut kills: Vec<(u32, Option<u32>)> = Vec::new();
 
         for (id, snake) in snakes.iter() {
-            if !snake.alive {
+            if !snake.alive || snake.in_grace() {
                 continue;
             }
 
@@ -766,7 +884,7 @@ impl GameSim<SnakesGame> for SnakesSim {
             for (other_id, other) in snakes.iter() {
                 // a snake's own body is explicitly harmless: the head passes
                 // over its own tail, which is the rule the game was asked for
-                if other_id == id || !other.alive {
+                if other_id == id || !other.alive || other.in_grace() {
                     continue;
                 }
 
@@ -797,7 +915,7 @@ impl GameSim<SnakesGame> for SnakesSim {
 
         // ***** 3. pickups, for whoever survived *****
         for (id, snake) in snakes.iter_mut() {
-            if !snake.alive || kills.iter().any(|(dead, _)| dead == id) {
+            if !snake.alive || snake.in_grace() || kills.iter().any(|(dead, _)| dead == id) {
                 continue;
             }
 
@@ -1043,6 +1161,231 @@ struct SnakesDumpOwned {
 mod tests {
     use super::*;
     use crate::motion::SPINE_POINTS;
+
+    const DT: f32 = 1.0 / 120.0;
+    /// `spawnGraceSeconds` of the fixture, in fixed steps.
+    const GRACE_STEPS: usize = 240;
+
+    /// 20 cells of 128 -> a disc of radius 1280 centred on (1280, 1280).
+    const MAP_JSON: &str = r#"{
+        "setId": "c1",
+        "scale": 1,
+        "step": 128,
+        "physicsStatic": [],
+        "physicsDynamic": [],
+        "map": [
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ],
+        "respawns": { "players": [[1280, 1280, 0]] }
+    }"#;
+
+    /// The shipped config with the crystal field switched off — these cases
+    /// are about who moves and who kills, and a crystal picked up on the way
+    /// would change both the radius and the length mid-test.
+    fn config_json(grace: f32) -> serde_json::Value {
+        let mut model = crate::config::fixtures::model_json();
+
+        model["world"]["maxCrystals"] = json!(0);
+        model["world"]["spawnGraceSeconds"] = json!(grace);
+
+        json!({
+            "timeStep": 1.0 / 120.0,
+            "mapScale": 1.0,
+            "mapSetId": "c1",
+            "snapshot": {
+                "version": 3,
+                "port": 5,
+                "keys": {
+                    "s1": { "id": 1, "kind": "indexed8", "class": "hot", "fields": [
+                        { "name": "x", "ty": "f32", "interp": "lerp" }
+                    ] },
+                    "c1": { "id": 3, "kind": "indexedNoNull8", "class": "hot", "fields": [
+                        { "name": "x", "ty": "f32", "interp": "lerp" },
+                        { "name": "y", "ty": "f32", "interp": "lerp" },
+                        { "name": "angle", "ty": "f32", "interp": "lerpAngle" }
+                    ] }
+                }
+            },
+            "seed": 42,
+            "friendlyFire": false,
+            "models": { "s1": model },
+            "weapons": {},
+            "playerKeys": {
+                "left": { "key": 1 },
+                "right": { "key": 2 },
+                "boost": { "key": 4 },
+                "respawn": { "key": 8, "type": 1 }
+            },
+            "panel": {
+                "crystals": { "value": 0.0 },
+                "dead": { "value": 0.0 }
+            }
+        })
+    }
+
+    fn game_with_grace(grace: f32) -> GameState {
+        let value = config_json(grace);
+        let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
+        let engine: EngineConfig = serde_json::from_value(value).unwrap();
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(MAP_JSON).unwrap();
+
+        game
+    }
+
+    #[test]
+    fn a_snake_in_its_spawn_grace_stays_where_it_was_put() {
+        let mut game = game_with_grace(2.0);
+
+        game.spawn_actor(1, "s1", 1, 400.0, 1280.0, 0.0).unwrap();
+
+        let start = game.actor_position(1).unwrap();
+
+        for _ in 0..GRACE_STEPS - 1 {
+            game.step(DT);
+        }
+
+        assert_eq!(game.actor_position(1).unwrap(), start, "frozen for the grace");
+
+        // …and the moment it runs out, the snake is an ordinary snake again
+        for _ in 0..120 {
+            game.step(DT);
+        }
+
+        assert!(
+            game.actor_position(1).unwrap()[0] > start[0] + 200.0,
+            "did not resume: {:?}",
+            game.actor_position(1)
+        );
+    }
+
+    #[test]
+    fn a_snake_in_its_spawn_grace_is_driven_through_and_not_killed() {
+        let mut game = game_with_grace(2.0);
+
+        game.spawn_actor(1, "s1", 1, 400.0, 1280.0, 0.0).unwrap();
+
+        // let the runner out of ITS grace first, so only the newcomer is
+        // protected when the two meet
+        for _ in 0..GRACE_STEPS {
+            game.step(DT);
+        }
+
+        // straight ahead of the runner, close enough to be reached well
+        // inside the newcomer's own grace
+        game.spawn_actor(2, "s1", 1, 900.0, 1280.0, 180.0).unwrap();
+
+        for _ in 0..GRACE_STEPS {
+            game.step(DT);
+        }
+
+        assert!(game.actor_position(1).unwrap()[0] > 900.0, "never got there");
+        assert!(game.is_alive(1), "the runner died on a snake in grace");
+        assert!(game.is_alive(2), "the newcomer was killed during its grace");
+    }
+
+    #[test]
+    fn without_the_grace_the_same_run_is_a_crash() {
+        // the control: it is the grace that saves them above, not the geometry
+        let mut game = game_with_grace(0.0);
+
+        // head on, so the two actually meet: with no grace both are moving
+        // from the first step
+        game.spawn_actor(1, "s1", 1, 400.0, 1280.0, 0.0).unwrap();
+        game.spawn_actor(2, "s1", 1, 900.0, 1280.0, 180.0).unwrap();
+
+        for _ in 0..GRACE_STEPS {
+            game.step(DT);
+        }
+
+        assert!(!game.is_alive(1), "the runner drove through a live snake");
+    }
+
+    #[test]
+    fn snakes_spawned_on_one_point_are_spread_out_instead_of_stacked() {
+        // the engine hands out respawn points by index and never checks
+        // whether one is taken: `RoundManager.changeTeam` derives the index
+        // from the team size, so a series of joins and leaves puts two players
+        // on one spot. The core is the last place that can notice.
+        let mut game = game_with_grace(2.0);
+
+        // one step so the sim has an arena: it is rebuilt from `ctx.map` on
+        // the fixed step, and the trait has no map-load hook to do it earlier
+        game.step(DT);
+
+        // one point, eight snakes, no steps between them — nothing but the
+        // clearance search stands between this and a heap
+        for id in 1..=8u32 {
+            game.spawn_actor(id, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        }
+
+        let spots: Vec<[f32; 2]> = (1..=8u32)
+            .map(|id| {
+                let p = game.actor_position(id).unwrap();
+
+                [p[0], p[1]]
+            })
+            .collect();
+
+        for (i, a) in spots.iter().enumerate() {
+            for b in &spots[i + 1..] {
+                let gap = (a[0] - b[0]).hypot(a[1] - b[1]);
+
+                assert!(gap >= RESPAWN_CLEARANCE, "{a:?} and {b:?} are {gap} apart");
+            }
+        }
+    }
+
+    #[test]
+    fn a_spawn_point_that_is_already_free_is_left_exactly_where_it_was() {
+        // the search is a fallback, not a re-roll: an uncontested respawn
+        // point must reach the snake unchanged, or the map's layout stops
+        // meaning anything
+        let mut game = game_with_grace(2.0);
+
+        game.step(DT);
+        game.spawn_actor(1, "s1", 1, 900.0, 1100.0, 45.0).unwrap();
+
+        let spot = game.actor_position(1).unwrap();
+
+        assert!((spot[0] - 900.0).abs() < 0.01, "{spot:?}");
+        assert!((spot[1] - 1100.0).abs() < 0.01, "{spot:?}");
+    }
+
+    #[test]
+    fn the_boost_byte_carries_the_boost_in_bit_0_and_the_grace_in_bit_1() {
+        let mut snake = Snake::new("s1", 1, 0, 0.0, 0.0, 0.0, 2.0);
+
+        assert_eq!(SnakesSim::boost_byte(&snake), 0b10);
+
+        snake.boosting = true;
+
+        assert_eq!(SnakesSim::boost_byte(&snake), 0b11);
+
+        snake.tick_grace(2.0);
+
+        assert_eq!(SnakesSim::boost_byte(&snake), 0b01);
+    }
 
     /// The row width the schema promises: 32 spine floats + angle + radius +
     /// crystals + colour + boost.

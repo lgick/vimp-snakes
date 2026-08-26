@@ -6,7 +6,13 @@ import { SNAKE } from '../../data/theme.js';
 // block (src/config/client.js -> parts.gameSets) and feeds it the field array
 // of that block, in the order of src/config/snapshot.js:
 //
-//   [p0x, p0y, … p15x, p15y, angle, radius, crystals, colour, boost]
+//   [p0x, p0y, … p15x, p15y, angle, radius, crystals, colour, flags]
+//
+// `flags` is the byte the schema still calls `boost`, and it carries two bits
+// (core/src/game.rs, `boost_byte`): bit 0 the boost, bit 1 the spawn grace —
+// the two seconds a fresh snake stands still, kills nobody and cannot be
+// killed. Blinking is the only thing that says so on screen, so it is not
+// decoration: a rival has to be able to see whom it is allowed to ignore.
 //
 // p0 is the head. The 16 points are a resample of the body the core actually
 // simulates, evenly spaced from head to tail, so the curve drawn here is the
@@ -23,8 +29,27 @@ const FIELD = {
   RADIUS: SPINE_LEN + 1,
   CRYSTALS: SPINE_LEN + 2,
   COLOR: SPINE_LEN + 3,
-  BOOST: SPINE_LEN + 4,
+  FLAGS: SPINE_LEN + 4,
 };
+
+const FLAG_BOOST = 1;
+const FLAG_GRACE = 2;
+
+// The blink of the spawn grace: a sine between the two alphas below, four
+// times a second. Rows arrive far more often than that, so the pulse is
+// sampled by the frames themselves — no ticker of its own.
+const GRACE_BLINK_HZ = 4;
+const GRACE_ALPHA_MIN = 0.25;
+// deliberately below 1: «in grace» has to be readable at every instant of the
+// pulse, and the tests read the same difference
+const GRACE_ALPHA_MAX = 0.85;
+
+/// Alpha of a blinking snake at the moment it is drawn.
+function graceAlpha(now) {
+  const phase = (Math.sin((now / 1000) * GRACE_BLINK_HZ * Math.PI * 2) + 1) / 2;
+
+  return GRACE_ALPHA_MIN + (GRACE_ALPHA_MAX - GRACE_ALPHA_MIN) * phase;
+}
 
 /// Darkens a hex colour towards black by `amount` (0..1).
 function darken(color, amount) {
@@ -112,7 +137,9 @@ export default class Snake extends Container {
     const radius = data[FIELD.RADIUS] || 1;
     const angle = data[FIELD.ANGLE] || 0;
     const crystals = data[FIELD.CRYSTALS] || 0;
-    const boosting = !!data[FIELD.BOOST];
+    const flags = data[FIELD.FLAGS] || 0;
+    const boosting = (flags & FLAG_BOOST) !== 0;
+    const inGrace = (flags & FLAG_GRACE) !== 0;
 
     // the index is free-running on the wire, so the palette can grow without
     // the core ever learning how long it is
@@ -123,6 +150,10 @@ export default class Snake extends Container {
     for (let i = 0; i < SPINE_POINTS; i += 1) {
       points.push([data[i * 2] || 0, data[i * 2 + 1] || 0]);
     }
+
+    // the whole snake pulses, head included — half a blinking snake reads as
+    // a rendering bug rather than as a rule of the game
+    this.alpha = inGrace ? graceAlpha(performance.now()) : 1;
 
     this._drawBody(points, radius, color, boosting);
     this._drawHead(points[0], angle, radius, color);

@@ -46,10 +46,10 @@
 
 | Этап | Файл | Пункт(ы) пользователя | Репозиторий | Статус |
 | --- | --- | --- | --- | --- |
-| 1 | [stage_1.md](stage_1.md) | 1 — плавное появление змей | snakes (core/ + client) | |
-| 2 | [stage_2.md](stage_2.md) | 3 — повороты длинной змеи | snakes (core/) | |
-| 3 | [stage_3.md](stage_3.md) | 4 — боты/игроки не в центре | snakes (core/ + data + host) | |
-| 4 | [stage_4.md](stage_4.md) | 5 — новая формула очков | snakes (host) | |
+| 1 | [stage_1.md](stage_1.md) | 1 — плавное появление змей | snakes (core/ + client) | ✅ выполнен |
+| 2 | [stage_2.md](stage_2.md) | 3 — повороты длинной змеи | snakes (core/) | ✅ выполнен |
+| 3 | [stage_3.md](stage_3.md) | 4 — боты/игроки не в центре | snakes (core/ + data + host) | ✅ выполнен |
+| 4 | [stage_4.md](stage_4.md) | 5 — новая формула очков | snakes (host) | ✅ выполнен |
 | 5 | [stage_5.md](stage_5.md) | 2 — /rank обновляется | движок + snakes (host) | |
 | 6 | [stage_6.md](stage_6.md) | 6 — колонки stat/panel | snakes (config + host + css) | |
 | 7 | [stage_7.md](stage_7.md) | 8 — без голосования/наблюдателей (закрывает и 7) | движок + snakes (config) | |

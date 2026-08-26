@@ -13,7 +13,8 @@ const { Arena, Snake, Crystal } = parts;
 
 const SPINE_POINTS = 16;
 
-/// A snake row: 16 spine points, then angle, radius, crystals, colour, boost.
+/// A snake row: 16 spine points, then angle, radius, crystals, colour, flags
+/// (bit 0 boost, bit 1 spawn grace).
 /// `points` is head-first; missing ones collapse onto the head, the way a
 /// just-spawned snake arrives.
 function snakeRow({ points = [[100, 200]], angle = 0, radius = 14, crystals = 0, color = 0, boost = 0 } = {}) {
@@ -58,6 +59,40 @@ describe('Snake', () => {
     const snake = new Snake(snakeRow({ points, radius: 28, crystals: 80 }));
 
     expect(() => snake.update(snakeRow({ points, boost: 1 }))).not.toThrow();
+
+    snake.destroy();
+  });
+
+  it('blinks while the spawn grace bit is set and stops when it clears', () => {
+    const snake = new Snake(snakeRow({ boost: 0b10 }));
+
+    // the pulse never reaches full opacity, so «in grace» is readable at any
+    // instant of it
+    expect(snake.alpha).toBeLessThan(1);
+    expect(snake.alpha).toBeGreaterThan(0);
+
+    snake.update(snakeRow({ boost: 0 }));
+
+    expect(snake.alpha).toBe(1);
+
+    snake.destroy();
+  });
+
+  it('still draws the boost glow while the grace bit is set too', () => {
+    const points = [[100, 200], [40, 200]];
+    const snake = new Snake(snakeRow({ points }));
+    const stroke = vi.spyOn(snake._body, 'stroke');
+
+    // body + inner core, and nothing else
+    snake.update(snakeRow({ points, boost: 0 }));
+    expect(stroke).toHaveBeenCalledTimes(2);
+
+    // bits 0 and 1 at once: blinking AND boosting — the glow is the third
+    stroke.mockClear();
+    snake.update(snakeRow({ points, boost: 0b11 }));
+
+    expect(stroke).toHaveBeenCalledTimes(3);
+    expect(snake.alpha).toBeLessThan(1);
 
     snake.destroy();
   });

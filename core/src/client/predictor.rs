@@ -33,7 +33,7 @@ const ERROR_SNAP_DISTANCE: f32 = 100.0;
 const MAX_ACCUMULATED_TIME: f64 = 100.0;
 
 /// Predicted state of the local snake, in the player-block layout
-/// `[x, y, cos(angle), sin(angle), crystals, length, alive, 0]` — the same
+/// `[x, y, cos(angle), sin(angle), crystals, length, alive, grace]` — the same
 /// order `Snake::prediction_state` packs, and the reason for the trigonometry
 /// is documented there.
 ///
@@ -48,6 +48,10 @@ pub struct SnakeState {
     pub crystals: f32,
     pub length: f32,
     pub alive: bool,
+    /// The host is holding this snake still for its spawn grace
+    /// (`Snake::in_grace`). Replaying movement through it is exactly the drift
+    /// the parity suite exists to catch, so `step` returns early on it.
+    pub grace: bool,
 }
 
 impl SnakeState {
@@ -59,6 +63,7 @@ impl SnakeState {
             crystals: s[4],
             length: s[5],
             alive: s[6] > 0.5,
+            grace: s[7] > 0.5,
         }
     }
 
@@ -71,7 +76,7 @@ impl SnakeState {
             self.crystals,
             self.length,
             self.alive as u8 as f32,
-            0.0,
+            self.grace as u8 as f32,
         ]
     }
 }
@@ -396,7 +401,8 @@ impl Predictor {
             return false;
         };
 
-        (self.input.keys & self.boost_bit != 0 || self.input.pointer_boost)
+        !self.state.grace
+            && (self.input.keys & self.boost_bit != 0 || self.input.pointer_boost)
             && self.state.crystals as u32 > model.boost_min_crystals
     }
 
@@ -430,6 +436,12 @@ impl Predictor {
             self.path.reset(self.state.x, self.state.y);
         }
 
+        // frozen by the host: the authoritative snake does not move for the
+        // whole grace, so neither may the replica
+        if self.state.grace {
+            return;
+        }
+
         let dt = (self.step_ms / 1000.0) as f32;
 
         let move_input = MoveInput {
@@ -442,7 +454,12 @@ impl Predictor {
         let can_boost = self.state.crystals as u32 > model.boost_min_crystals;
         let head = [self.state.x, self.state.y];
 
-        self.state.angle = motion::step_angle(head, self.state.angle, move_input, model, dt);
+        // the same crystal count the host turns by, off slot 4 of the server
+        // frame — a replica steering by the base rate would out-turn a fat
+        // authoritative snake on every key press
+        let max_turn = motion::turn_speed_for(self.state.crystals as u32, model);
+
+        self.state.angle = motion::step_angle(head, self.state.angle, move_input, max_turn, dt);
 
         let speed = motion::speed_of(move_input, can_boost, model);
         let head = motion::advance_head(
@@ -521,6 +538,10 @@ mod parity {
         let mut model = crate::config::fixtures::model_json();
 
         model["world"]["maxCrystals"] = serde_json::json!(0);
+        // no spawn grace: this suite compares two movement formulas, and a
+        // snake frozen on both sides agrees about nothing worth testing. The
+        // grace itself has its own case (`the_grace_freezes_both_halves`).
+        model["world"]["spawnGraceSeconds"] = serde_json::json!(0.0);
         model["world"]["startCrystals"] = serde_json::json!(start_crystals);
         model["boostMinCrystals"] = serde_json::json!(boost_min);
 
@@ -574,8 +595,20 @@ mod parity {
     /// Steps both halves through one schedule of key masks
     /// ({ step index → new mask }) and returns their final head positions.
     fn simulate(steps: usize, schedule: &[(usize, u32)]) -> ([f32; 2], (f32, f32)) {
-        let cfg = game_config();
-        let mut game = GameState::new(engine_config(), &cfg);
+        simulate_fed(0, steps, schedule)
+    }
+
+    /// The same, with the snake handed `start_crystals` at spawn: the turn
+    /// rate reads them (`motion::turn_speed_for`), so a parity case about
+    /// steering a fat snake needs a way to fatten one.
+    fn simulate_fed(
+        start_crystals: u32,
+        steps: usize,
+        schedule: &[(usize, u32)],
+    ) -> ([f32; 2], (f32, f32)) {
+        let json = config_json_with(start_crystals, 2);
+        let cfg: SnakesConfig = serde_json::from_value(json.clone()).unwrap();
+        let mut game = GameState::new(serde_json::from_value(json).unwrap(), &cfg);
 
         game.load_map(MAP_JSON).unwrap();
         game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
@@ -653,6 +686,28 @@ mod parity {
         let (core, replica) = simulate(120, &[(0, key_bit("right"))]);
 
         expect_close(core, replica, 0.5);
+    }
+
+    #[test]
+    fn a_fat_snake_turns_slower_and_both_halves_agree_on_how_much() {
+        // the same key schedule on an empty and on a 100-crystal snake: the
+        // fat one must trace a wider arc, and its replica must trace the same
+        // wide arc — the case that catches turn_speed_for applied to one half
+        let (thin_core, thin_replica) = simulate_fed(0, 120, &[(0, key_bit("right"))]);
+        let (fat_core, fat_replica) = simulate_fed(100, 120, &[(0, key_bit("right"))]);
+
+        expect_close(thin_core, thin_replica, 0.5);
+        expect_close(fat_core, fat_replica, 0.5);
+
+        // a full second of holding right: at 3.4 rad/s the thin snake has come
+        // most of the way round, at 1.6 rad/s the fat one is still swinging
+        let thin_travel = thin_core[0] - 1280.0;
+        let fat_travel = fat_core[0] - 1280.0;
+
+        assert!(
+            fat_travel > thin_travel + 100.0,
+            "the fat snake did not turn wider: fat {fat_travel} vs thin {thin_travel}"
+        );
     }
 
     #[test]
@@ -793,6 +848,77 @@ mod parity {
 
         // the host burns crystals and the replica does not, but neither
         // reaches the minimum here, so the positions must still agree
+        expect_close(core, (render.x, render.y), 0.5);
+    }
+
+    #[test]
+    fn the_grace_freezes_both_halves() {
+        // the one case the rest of the suite switches off: while the host
+        // holds a fresh snake still, the replica must hold it still too —
+        // otherwise the local snake drives away for two seconds and is
+        // yanked back by the first frame that disagrees
+        let mut json = config_json();
+
+        json["models"]["s1"]["world"]["spawnGraceSeconds"] = serde_json::json!(2.0);
+
+        let cfg: SnakesConfig = serde_json::from_value(json.clone()).unwrap();
+        let engine: vimp_engine_core::config::EngineConfig =
+            serde_json::from_value(json).unwrap();
+
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(MAP_JSON).unwrap();
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let mut predictor = Predictor::new(STEP_MS, &cfg.player_keys, &cfg.models);
+
+        predictor.set_model("s1");
+        predictor.set_active(true);
+        predictor.on_server_state(game.prediction_state(1).unwrap().0, 0.0, 0.0, 0.0);
+
+        // half the grace: neither half may have moved a unit
+        for _ in 0..120 {
+            game.step(DT);
+            predictor.step(InputSnapshot::default());
+        }
+
+        let core = game.actor_position(1).unwrap();
+        let render = predictor.render_state().unwrap();
+
+        assert_eq!(core, [1280.0, 1280.0], "the host moved during the grace");
+        expect_close(core, (render.x, render.y), 0.001);
+
+        // …and once it runs out, the two resume together. The grace is burned
+        // down INSIDE a step, so the frame of the last frozen step still
+        // carries it — exactly as it does over the wire; the frame taken here
+        // is the first one that does not
+        let mut frames = 0;
+
+        while game.prediction_state(1).unwrap().0[7] > 0.5 {
+            game.step(DT);
+            predictor.step(InputSnapshot::default());
+            frames += 1;
+
+            assert!(frames < 400, "the grace never ran out");
+        }
+
+        assert_eq!(
+            game.actor_position(1).unwrap(),
+            [1280.0, 1280.0],
+            "the host moved before the grace ran out"
+        );
+
+        predictor.on_server_state(game.prediction_state(1).unwrap().0, 0.0, 0.0, 0.0);
+
+        for _ in 0..120 {
+            game.step(DT);
+            predictor.step(InputSnapshot::default());
+        }
+
+        let core = game.actor_position(1).unwrap();
+        let render = predictor.render_state().unwrap();
+
+        assert!(core[0] > 1480.0, "the host never resumed: {core:?}");
         expect_close(core, (render.x, render.y), 0.5);
     }
 

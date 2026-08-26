@@ -90,10 +90,23 @@ pub struct Snake {
     /// Fractional crystals owed to the boost; whole ones are shed as they
     /// accumulate, so the drain rate is exact regardless of the step size.
     boost_debt: f32,
+    /// Seconds left of the spawn grace. While it is positive the snake is
+    /// frozen and untouchable — `game.rs` neither steps it nor lets it kill
+    /// or be killed, and both the wire row and the prediction block say so.
+    #[serde(default)]
+    spawn_grace: f32,
 }
 
 impl Snake {
-    pub fn new(model: &str, team_id: u8, color: u8, x: f32, y: f32, angle_deg: f32) -> Self {
+    pub fn new(
+        model: &str,
+        team_id: u8,
+        color: u8,
+        x: f32,
+        y: f32,
+        angle_deg: f32,
+        spawn_grace: f32,
+    ) -> Self {
         Self {
             model: model.to_string(),
             team_id,
@@ -111,13 +124,21 @@ impl Snake {
             aim: None,
             pointer_boost: false,
             boost_debt: 0.0,
+            spawn_grace,
         }
     }
 
     /// Back to a fresh snake at a new spot. Keeps identity — the colour, the
     /// team and the crash count survive — and drops everything else, which is
     /// what "respawn small" means.
-    pub fn respawn(&mut self, x: f32, y: f32, angle_deg: f32, start_crystals: u32) {
+    pub fn respawn(
+        &mut self,
+        x: f32,
+        y: f32,
+        angle_deg: f32,
+        start_crystals: u32,
+        spawn_grace: f32,
+    ) {
         self.crystals = start_crystals;
         self.alive = true;
         self.angle = deg_to_rad(angle_deg);
@@ -129,6 +150,20 @@ impl Snake {
         self.aim = None;
         self.pointer_boost = false;
         self.boost_debt = 0.0;
+        self.spawn_grace = spawn_grace;
+    }
+
+    /// True while the snake is still in its spawn grace: frozen, harmless and
+    /// unkillable. One predicate for the host step, the wire row and the
+    /// prediction block, so the three cannot disagree.
+    pub fn in_grace(&self) -> bool {
+        self.spawn_grace > 0.0
+    }
+
+    /// Burns one fixed step off the grace. Called INSTEAD of `step`, which is
+    /// what freezing the snake means.
+    pub fn tick_grace(&mut self, dt: f32) {
+        self.spawn_grace = (self.spawn_grace - dt).max(0.0);
     }
 
     pub fn head(&self) -> [f32; 2] {
@@ -233,7 +268,9 @@ impl Snake {
 
         let head = self.path.head();
 
-        self.angle = motion::step_angle(head, self.angle, input, model, dt);
+        let max_turn = motion::turn_speed_for(self.crystals, model);
+
+        self.angle = motion::step_angle(head, self.angle, input, max_turn, dt);
         self.speed = motion::speed_of(input, can_boost, model);
 
         let next = motion::advance_head(head[0], head[1], self.angle, self.speed, dt);
@@ -270,11 +307,16 @@ impl Snake {
     /// The eight floats the per-user player block carries, plus the
     /// `centering` flag (unused here).
     ///
+    /// The last slot used to be a hard zero and now carries the spawn grace:
+    /// the predictor has to freeze exactly when the host does, or the local
+    /// snake drives off on its own for the two seconds it is meant to stand
+    /// still.
+    ///
     /// Layout — positional, and mirrored by `Predictor::to_array` and by the
     /// scenario `divergence.thresholds`:
     ///
     /// ```text
-    /// [x, y, cos(angle), sin(angle), crystals, length, alive, 0]
+    /// [x, y, cos(angle), sin(angle), crystals, length, alive, grace]
     /// ```
     ///
     /// Components 0 and 1 are world x/y, which is the contract level-0 drift
@@ -302,7 +344,7 @@ impl Snake {
                 self.crystals as f32,
                 self.target_length(model),
                 self.alive as u8 as f32,
-                0.0,
+                self.in_grace() as u8 as f32,
             ],
             false,
         )
@@ -319,7 +361,11 @@ mod tests {
     }
 
     fn snake() -> Snake {
-        Snake::new("s1", 1, 0, 0.0, 0.0, 0.0)
+        Snake::new("s1", 1, 0, 0.0, 0.0, 0.0, 0.0)
+    }
+
+    fn snake_in_grace(grace: f32) -> Snake {
+        Snake::new("s1", 1, 0, 0.0, 0.0, 0.0, grace)
     }
 
     #[test]
@@ -366,12 +412,59 @@ mod tests {
         let mut snake = snake();
 
         snake.apply_aim(30.0, -10.0, 3);
-        snake.respawn(0.0, 0.0, 0.0, 0);
+        snake.respawn(0.0, 0.0, 0.0, 0, 0.0);
 
         let input = snake.input(&bits);
 
         assert_eq!(input.aim, None);
         assert!(!input.boost);
+    }
+
+    #[test]
+    fn a_fresh_snake_is_in_grace_until_it_is_ticked_away() {
+        let mut snake = snake_in_grace(2.0);
+
+        assert!(snake.in_grace());
+
+        for _ in 0..239 {
+            snake.tick_grace(1.0 / 120.0);
+        }
+
+        assert!(snake.in_grace(), "239 steps of 1/120 is under two seconds");
+
+        // …and it never goes negative, so a long-lived snake stays out of
+        // grace once its two seconds are spent
+        snake.tick_grace(10.0);
+
+        assert!(!snake.in_grace());
+    }
+
+    #[test]
+    fn a_respawn_arms_the_grace_again() {
+        let mut snake = snake_in_grace(2.0);
+
+        snake.tick_grace(2.0);
+        assert!(!snake.in_grace());
+
+        snake.respawn(10.0, 20.0, 0.0, 0, 2.0);
+
+        assert!(snake.in_grace());
+    }
+
+    #[test]
+    fn the_prediction_block_carries_the_grace_in_the_last_slot() {
+        let model = model();
+        let mut snake = snake_in_grace(2.0);
+
+        let (state, _) = snake.prediction_state(&model);
+
+        assert_eq!(state[7], 1.0);
+
+        snake.tick_grace(2.0);
+
+        let (state, _) = snake.prediction_state(&model);
+
+        assert_eq!(state[7], 0.0);
     }
 
     #[test]
@@ -499,7 +592,7 @@ mod tests {
             snake.step(1.0 / 120.0, &model, &bits);
         }
 
-        snake.respawn(100.0, 200.0, 90.0, 0);
+        snake.respawn(100.0, 200.0, 90.0, 0, 0.0);
 
         assert_eq!(snake.crystals, 0);
         assert_eq!(snake.crashes, 2, "crashes survive a respawn");

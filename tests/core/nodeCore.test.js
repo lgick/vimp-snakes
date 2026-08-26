@@ -5,6 +5,7 @@ import { buildCoreConfig } from 'vimp-engine/lib/coreConfig.js';
 import { SNAPSHOT_FORMAT_VERSION } from 'vimp-engine/config/opcodes.js';
 import wsports from 'vimp-engine/config/wsports.js';
 import gameConfig from '../../src/config/game.js';
+import models from '../../src/data/models.js';
 import mapData from '../../src/data/maps/arena.js';
 
 // The `integration` project (node environment): the REAL Rust core, driven
@@ -21,6 +22,20 @@ const gluePath = fileURLToPath(
 );
 
 const hasCore = existsSync(gluePath);
+
+const STEP = 1 / 120;
+
+// A freshly spawned snake is frozen for `spawnGraceSeconds`: it neither moves
+// nor kills nor dies (core/src/game.rs). Every case that wants to watch the
+// snake MOVE has to burn that off first, or it measures a snake standing on
+// its spawn point.
+const GRACE_STEPS = Math.ceil(models.s1.world.spawnGraceSeconds / STEP) + 1;
+
+const run = (core, steps) => {
+  for (let i = 0; i < steps; i += 1) {
+    core.step(STEP);
+  }
+};
 
 describe.skipIf(!hasCore)('the Rust core through pkg-node', () => {
   const boot = async (options = {}) => {
@@ -45,24 +60,27 @@ describe.skipIf(!hasCore)('the Rust core through pkg-node', () => {
 
     core.load_map(JSON.stringify(mapData));
 
-    const [x, y, angle] = mapData.respawns.players[0];
+    // the second point, not the first: point 0 sits all but on the centre, and
+    // a snake that drives through it comes out the far side further away than
+    // it started
+    const [x, y, angle] = mapData.respawns.players[1];
 
     core.spawn_actor(1, 's1', 1, x, y, angle);
 
     expect(core.is_alive(1)).toBe(true);
 
-    // 120 steps of 1/120 s — the engine's own fixed step. No key is held: a
-    // snake is always moving, which is the rule that separates this game from
-    // everything the template ships.
-    for (let i = 0; i < 120; i += 1) {
-      core.step(1 / 120);
-    }
+    // the spawn grace, then 120 steps of 1/120 s — the engine's own fixed
+    // step. No key is held: a snake is always moving, which is the rule that
+    // separates this game from everything the template ships.
+    run(core, GRACE_STEPS + 120);
 
     const moved = core.position_of(1);
+    const centre = (mapData.map.length * mapData.step) / 2;
+    const distance = point => Math.hypot(point[0] - centre, point[1] - centre);
 
-    // that respawn faces the centre of the disc, so it drove inwards
-    expect(moved[0]).toBeLessThan(x);
-    expect(Math.abs(moved[1] - y)).toBeLessThan(1);
+    // that respawn faces the centre of the disc — fanned off it by up to 25
+    // degrees so that neighbours do not converge — so it drove inwards
+    expect(distance(moved)).toBeLessThan(distance([x, y]));
   });
 
   it('turns on the key names the client binds', async () => {
@@ -79,9 +97,7 @@ describe.skipIf(!hasCore)('the Rust core through pkg-node', () => {
     // what this asserts is not happening
     core.apply_input(1, 1, 'down', 'right');
 
-    for (let i = 0; i < 120; i += 1) {
-      core.step(1 / 120);
-    }
+    run(core, GRACE_STEPS + 120);
 
     expect(Math.abs(core.position_of(1)[1] - y)).toBeGreaterThan(20);
   });

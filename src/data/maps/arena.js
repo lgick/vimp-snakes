@@ -64,6 +64,13 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 // snake spawning at 0.72 R faces the centre with most of the disc ahead of it
 const RESPAWN_SPAN = 0.72;
 
+// How far a fresh snake's heading may deviate from "straight at the centre",
+// in degrees. Strictly at the centre means every spawn of one wave converges
+// on the same point; the deviation is a function of the index, never random,
+// because this map is serialised into dist/maps/arena.json and the host and
+// the client must read the same numbers out of it.
+const RESPAWN_FAN_DEG = 25;
+
 // The number of cells per side for a room of `count` participants.
 //
 // Area grows linearly with the crowd — `size = BASE_SIZE * sqrt(n / 8)` — so
@@ -77,23 +84,55 @@ export function arenaSizeFor(count) {
   return Math.round(BASE_SIZE * Math.sqrt(players / BASE_PLAYERS));
 }
 
+// Bit-reversal of a `RESPAWN_COUNT`-wide index — the van der Corput sequence
+// in base two, written as a permutation instead of a fraction.
+//
+// It is what fixes the real complaint behind this: the engine hands the points
+// out strictly by index, `0, 1, 2, …`, and a sunflower spiral is uniform by
+// area only TAKEN WHOLE. Its prefix is not — the first ten points of the plain
+// order sit at radii 81…355 of a 1280 disc, so any small wave of joiners
+// materialises in a heap in the middle and then drives at each other.
+//
+// Reversing the bits of the index reorders the SAME sixty-four points so that
+// every prefix samples the whole range of radii: 0, 32, 16, 48, … Because the
+// point set is untouched, the pairwise clearance the spiral already had (178
+// units at the base size) is untouched with it.
+const RESPAWN_BITS = Math.round(Math.log2(RESPAWN_COUNT));
+
+function reverseBits(i) {
+  let out = 0;
+
+  for (let bit = 0; bit < RESPAWN_BITS; bit += 1) {
+    out = (out << 1) | ((i >> bit) & 1);
+  }
+
+  return out;
+}
+
 // The respawn points of a `size`-cell arena: [x, y, angleDeg] each, DEGREES,
-// not radians — the core converts them itself. Every snake faces the centre so
-// that a fresh spawn never starts by driving into the wall.
+// not radians — the core converts them itself. Every snake faces the centre —
+// fanned out by up to `RESPAWN_FAN_DEG` — so that a fresh spawn never starts
+// by driving into the wall, and neighbours never start by driving into one
+// another.
 function buildRespawns(size) {
   const radius = (size * STEP) / 2;
   const centre = radius;
 
   return Array.from({ length: RESPAWN_COUNT }, (_, i) => {
-    const r = radius * RESPAWN_SPAN * Math.sqrt((i + 0.5) / RESPAWN_COUNT);
-    const theta = i * GOLDEN_ANGLE;
+    const k = reverseBits(i);
+    const r = radius * RESPAWN_SPAN * Math.sqrt((k + 0.5) / RESPAWN_COUNT);
+    const theta = k * GOLDEN_ANGLE;
     const x = centre + Math.cos(theta) * r;
     const y = centre + Math.sin(theta) * r;
+
+    // the golden ratio again, this time as a low-discrepancy dither in [-1, 1]
+    const fan = (((i * 0.6180339887) % 1) * 2 - 1) * RESPAWN_FAN_DEG;
+    const facing = (theta * 180) / Math.PI + 180 + fan;
 
     return [
       Math.round(x),
       Math.round(y),
-      Math.round((((theta * 180) / Math.PI + 180) % 360 + 360) % 360),
+      Math.round(((facing % 360) + 360) % 360),
     ];
   });
 }

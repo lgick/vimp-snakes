@@ -48,16 +48,15 @@ pub struct MoveInput {
 ///
 /// The ONE turn function, and both sources reduce to it: keys ask for
 /// «current angle ± one step», the pointer asks for «the angle onto that
-/// point». Neither can turn faster than `turn_speed` — a mouse that snapped
+/// point». Neither can turn faster than `max_turn` — a mouse that snapped
 /// the snake around instantly would simply be a better keyboard.
-pub fn step_angle(
-    head: [f32; 2],
-    angle: f32,
-    input: MoveInput,
-    model: &SnakeConfig,
-    dt: f32,
-) -> f32 {
-    let max_step = model.turn_speed * dt;
+///
+/// `max_turn` (radians per second) is an explicit parameter instead of a read
+/// off the model: it depends on the crystals now (`turn_speed_for`), and the
+/// two callers — `Snake::step` and the client `Predictor` — must not be able
+/// to disagree about it silently.
+pub fn step_angle(head: [f32; 2], angle: f32, input: MoveInput, max_turn: f32, dt: f32) -> f32 {
+    let max_step = max_turn * dt;
     let turning_by_keys = input.left || input.right;
 
     let delta = match input.aim {
@@ -114,6 +113,15 @@ pub fn radius_for(crystals: u32, model: &SnakeConfig) -> f32 {
 /// Body polyline length for a crystal count.
 pub fn length_for(crystals: u32, model: &SnakeConfig) -> f32 {
     model.base_length + model.length_per_crystal * crystals as f32
+}
+
+/// Turn rate (radians per second) for a crystal count — the mirror image of
+/// `radius_for`: the same `sqrt(crystals)` curve, falling instead of rising,
+/// and clamped from below. A fat snake steers heavily, but never so heavily
+/// that it cannot get off the edge.
+pub fn turn_speed_for(crystals: u32, model: &SnakeConfig) -> f32 {
+    (model.turn_speed - model.turn_speed_falloff * (crystals as f32).sqrt())
+        .max(model.turn_speed_min)
 }
 
 fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -365,7 +373,7 @@ mod tests {
             ..MoveInput::default()
         };
 
-        assert_eq!(step_angle([0.0, 0.0], 0.5, input, &model, 1.0 / 120.0), 0.5);
+        assert_eq!(step_angle([0.0, 0.0], 0.5, input, model.turn_speed, 1.0 / 120.0), 0.5);
     }
 
     #[test]
@@ -378,7 +386,7 @@ mod tests {
         let mut angle = 0.0;
 
         for _ in 0..1000 {
-            angle = step_angle([0.0, 0.0], angle, input, &model, 1.0 / 120.0);
+            angle = step_angle([0.0, 0.0], angle, input, model.turn_speed, 1.0 / 120.0);
         }
 
         assert!(angle.abs() <= core::f32::consts::PI);
@@ -395,7 +403,7 @@ mod tests {
             aim: Some([-100.0, 0.0]),
             ..MoveInput::default()
         };
-        let angle = step_angle([0.0, 0.0], 0.0, input, &model, dt);
+        let angle = step_angle([0.0, 0.0], 0.0, input, model.turn_speed, dt);
 
         assert!((angle.abs() - max_step).abs() < 1e-6, "{angle}");
     }
@@ -408,7 +416,7 @@ mod tests {
             ..MoveInput::default()
         };
 
-        assert_eq!(step_angle([0.0, 0.0], 0.7, input, &model, 1.0 / 120.0), 0.7);
+        assert_eq!(step_angle([0.0, 0.0], 0.7, input, model.turn_speed, 1.0 / 120.0), 0.7);
     }
 
     #[test]
@@ -422,7 +430,7 @@ mod tests {
             aim: Some(target),
             ..MoveInput::default()
         };
-        let angle = step_angle([0.0, 0.0], 0.0, input, &model, dt);
+        let angle = step_angle([0.0, 0.0], 0.0, input, model.turn_speed, dt);
 
         assert!((angle - 0.01).abs() < 1e-4, "{angle}");
     }
@@ -438,7 +446,7 @@ mod tests {
             ..MoveInput::default()
         };
 
-        assert!((step_angle([0.0, 0.0], 0.0, input, &model, dt) + max_step).abs() < 1e-6);
+        assert!((step_angle([0.0, 0.0], 0.0, input, model.turn_speed, dt) + max_step).abs() < 1e-6);
     }
 
     #[test]
@@ -451,6 +459,55 @@ mod tests {
 
         assert_eq!(speed_of(input, true, &model), 260.0 * 1.9);
         assert_eq!(speed_of(input, false, &model), 260.0);
+    }
+
+    #[test]
+    fn the_turn_rate_starts_at_the_base_and_falls_with_the_crystals() {
+        let model = model();
+
+        // c = 0: exactly the old constant, so every turn test above still
+        // measures what it used to
+        assert_eq!(turn_speed_for(0, &model), model.turn_speed);
+
+        assert!((turn_speed_for(25, &model) - 2.5).abs() < 1e-5);
+        assert!((turn_speed_for(100, &model) - 1.6).abs() < 1e-5);
+
+        let mut previous = turn_speed_for(0, &model);
+
+        for crystals in 1..=400 {
+            let current = turn_speed_for(crystals, &model);
+
+            assert!(
+                current <= previous,
+                "turn rate rose at {crystals}: {previous} -> {current}"
+            );
+
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn the_turn_rate_never_falls_below_the_floor() {
+        let model = model();
+
+        assert_eq!(turn_speed_for(10_000, &model), model.turn_speed_min);
+        assert!(turn_speed_for(200, &model) >= model.turn_speed_min);
+    }
+
+    #[test]
+    fn a_fat_snake_turns_less_per_step_than_a_thin_one() {
+        let model = model();
+        let dt = 1.0 / 120.0;
+        let input = MoveInput {
+            right: true,
+            ..MoveInput::default()
+        };
+
+        let thin = step_angle([0.0, 0.0], 0.0, input, turn_speed_for(0, &model), dt);
+        let fat = step_angle([0.0, 0.0], 0.0, input, turn_speed_for(100, &model), dt);
+
+        assert!(fat < thin, "fat {fat} vs thin {thin}");
+        assert!(fat > 0.0);
     }
 
     #[test]
