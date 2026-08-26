@@ -1,6 +1,6 @@
 {
   "name": "@vimp-games/snakes",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Vimp Snakes — a VIMP game plugin",
   "author": "lgick",
   "license": "MIT",
@@ -46,7 +46,7 @@
     "globals": "^16.2.0",
     "happy-dom": "^20.10.6",
     "pixi.js": "^8.14.0",
-    "vimp-engine": "^0.18.0",
+    "vimp-engine": "^0.18.1",
     "vite": "^7.1.11",
     "vitest": "^4.1.9"
   }
