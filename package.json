@@ -4,6 +4,11 @@
   "description": "Vimp Snakes — a VIMP game plugin",
   "author": "lgick",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/lgick/vimp-snakes.git"
+  },
+  "homepage": "https://github.com/lgick/vimp-snakes#readme",
   "type": "module",
   "engines": {
     "node": ">=20.11.0"
