@@ -502,11 +502,11 @@ impl SnakesSim {
 
         let grace = self.world.spawn_grace_seconds;
 
-        snake.respawn(spot[0], spot[1], spot[2], start, grace);
-
         let Some(model) = self.models.get(&snake.model) else {
             return;
         };
+
+        snake.respawn(spot[0], spot[1], spot[2], start, grace, model);
 
         Self::push_vitals(events, id, snake, model);
 
@@ -681,6 +681,8 @@ impl GameSim<SnakesGame> for SnakesSim {
         );
 
         snake.crystals = self.world.start_crystals;
+        // after the crystals: the body is as long as they say it is
+        snake.lay_out_body(&model);
 
         Self::push_vitals(events, game_id, &snake, &model);
 
@@ -726,8 +728,10 @@ impl GameSim<SnakesGame> for SnakesSim {
         let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], Some(game_id));
 
         if let Some(snake) = self.snakes.get_mut(&game_id) {
-            snake.team_id = team_id;
-            snake.respawn(x, y, angle_deg, start, grace);
+            if let Some(model) = self.models.get(&snake.model) {
+                snake.team_id = team_id;
+                snake.respawn(x, y, angle_deg, start, grace, model);
+            }
         }
 
         self.field.request_resync();
@@ -999,6 +1003,8 @@ impl GameSim<SnakesGame> for SnakesSim {
 
             let head = snake.head();
             let radius = snake.radius(model);
+            // which way this head is pointing — the fault test below
+            let facing = [snake.angle.cos(), snake.angle.sin()];
 
             // the edge of the disc: the boundary catches the snake, not its
             // centreline, so the body radius is the margin
@@ -1032,7 +1038,20 @@ impl GameSim<SnakesGame> for SnakesSim {
                     continue;
                 }
 
-                if other.path.touches(head, reach, 0) {
+                // ***** WHOSE FAULT IT IS *****
+                //
+                // A snake dies for driving its head INTO somebody — and only
+                // the one that drove dies. The other is not touched: it ran
+                // into nothing.
+                //
+                // Which of the two drove is read off the geometry: the
+                // contact has to lie AHEAD of the head that is being judged.
+                // Two snakes meeting head on are both heading into each other
+                // and both die, as they always did; but a head that arrives
+                // from the side or from behind — somebody else's, swinging
+                // into a snake driving straight — is that somebody's crash
+                // alone. It used to take out both.
+                if other.path.touches_ahead(head, reach, facing) {
                     kills.push((*id, Some(*other_id)));
 
                     break;
@@ -1469,6 +1488,50 @@ mod tests {
         }
 
         assert!(!game.is_alive(1), "the runner drove through a live snake");
+    }
+
+    #[test]
+    fn a_head_swinging_in_from_the_side_kills_only_the_one_that_swung() {
+        // the fault rule: a collision belongs to whoever drove into it. Snake
+        // 1 goes straight east and touches nothing; snake 2 crosses its line
+        // from the north and runs into it just behind the head. Both used to
+        // die here, which took out the player who did nothing.
+        let mut game = game_with_grace(0.0);
+
+        game.spawn_actor(1, "s1", 1, 400.0, 1280.0, 0.0).unwrap();
+        game.spawn_actor(2, "s1", 1, 440.0, 1210.0, 90.0).unwrap();
+
+        for _ in 0..GRACE_STEPS {
+            game.step(DT);
+        }
+
+        assert!(!game.is_alive(2), "the one that drove in survived");
+        assert!(game.is_alive(1), "the snake driving straight was taken out");
+    }
+
+    #[test]
+    fn a_snake_enters_the_arena_with_its_whole_body() {
+        // a bare head that grows by driving is invisible for the first
+        // seconds of a life — and the spawn grace is spent frozen, so it
+        // would not even be growing
+        let mut game = game_with_grace(2.0);
+        let model = game.sim.models.get("s1").unwrap().clone();
+
+        game.spawn_actor(1, "s1", 1, 800.0, 1280.0, 0.0).unwrap();
+
+        let snake = game.sim.snakes.get(&1).unwrap();
+        let length = snake.path.length();
+
+        assert!(
+            (length - crate::motion::length_for(snake.crystals, &model)).abs() < 1.0,
+            "spawned with a body of {length}"
+        );
+
+        // laid out BEHIND the head, so the snake does not spawn on top of
+        // where it is about to drive
+        let tail = snake.path.nodes().last().copied().unwrap();
+
+        assert!(tail[0] < snake.head()[0], "the body was laid out forwards");
     }
 
     #[test]

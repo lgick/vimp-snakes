@@ -215,10 +215,15 @@ describe('client config', () => {
 
   // nothing is voted on here any more: one team, one endless map, and a join
   // that no longer asks. The engine's own defaults still give the module its
-  // elems, so an empty menu is all that is left of it
-  it('ships no vote module and no initial vote', () => {
+  // elems, so the key that opened it has to be disarmed by the game — a menu
+  // that opens empty is a menu the player was invited to use
+  it('ships no vote module, no initial vote and no key to open one', () => {
     expect(clientConfig.modules.vote?.params).toBeUndefined();
     expect(hostPlugin.gameConfig.initialVote).toBeUndefined();
+    // 77 is 'm', the engine's default mode key for the vote menu: the merge
+    // is recursive, so the game has to overwrite the key — dropping it would
+    // simply leave the engine's own value in place
+    expect(clientConfig.modules.controls.modes[77]).toBe('');
   });
 
   it('ranks the table by the score column the bridge writes', () => {

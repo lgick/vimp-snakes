@@ -138,19 +138,42 @@ impl Snake {
         angle_deg: f32,
         start_crystals: u32,
         spawn_grace: f32,
+        model: &SnakeConfig,
     ) {
         self.crystals = start_crystals;
         self.alive = true;
         self.angle = deg_to_rad(angle_deg);
         self.speed = 0.0;
         self.boosting = false;
-        self.path.reset(x, y);
+        self.lay_out_body_at([x, y], model);
         self.held_keys = 0;
         self.pending_keys = 0;
         self.aim = None;
         self.pointer_boost = false;
         self.boost_debt = 0.0;
         self.spawn_grace = spawn_grace;
+    }
+
+    /// Lays the body out straight behind the head, as long as the crystal
+    /// count says it should be. A snake enters the arena WHOLE: a bare head
+    /// that grows its body only by driving spends the first seconds of a life
+    /// looking like a crystal, and the spawn grace it spends frozen would
+    /// show nothing at all.
+    ///
+    /// The model is a parameter and not a lookup because `Snake` has never
+    /// known the model table — `game.rs` owns it.
+    pub fn lay_out_body(&mut self, model: &SnakeConfig) {
+        self.lay_out_body_at(self.head(), model);
+    }
+
+    fn lay_out_body_at(&mut self, head: [f32; 2], model: &SnakeConfig) {
+        self.path.reset_with_body(
+            head[0],
+            head[1],
+            self.angle,
+            self.target_length(model),
+            model.point_spacing,
+        );
     }
 
     /// True while the snake is still in its spawn grace: frozen, harmless and
@@ -414,7 +437,7 @@ mod tests {
         let mut snake = snake();
 
         snake.apply_aim(30.0, -10.0, 3);
-        snake.respawn(0.0, 0.0, 0.0, 0, 0.0);
+        snake.respawn(0.0, 0.0, 0.0, 0, 0.0, &model());
 
         let input = snake.input(&bits);
 
@@ -448,7 +471,7 @@ mod tests {
         snake.tick_grace(2.0);
         assert!(!snake.in_grace());
 
-        snake.respawn(10.0, 20.0, 0.0, 0, 2.0);
+        snake.respawn(10.0, 20.0, 0.0, 0, 2.0, &model());
 
         assert!(snake.in_grace());
     }
@@ -590,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn respawn_keeps_the_identity_and_drops_the_body() {
+    fn respawn_lays_a_fresh_body_out_and_keeps_the_identity() {
         let model = model();
         let bits = bits();
         let mut snake = snake();
@@ -602,12 +625,19 @@ mod tests {
             snake.step(1.0 / 120.0, &model, &bits);
         }
 
-        snake.respawn(100.0, 200.0, 90.0, 0, 0.0);
+        snake.respawn(100.0, 200.0, 90.0, 0, 0.0, &model);
 
         assert_eq!(snake.crystals, 0);
         assert_eq!(snake.crashes, 2, "crashes survive a respawn");
         assert_eq!(snake.color, 0, "colour survives a respawn");
         assert_eq!(snake.head(), [100.0, 200.0]);
-        assert_eq!(snake.path.length(), 0.0);
+        // the body is not dropped any more: a snake respawns WHOLE, as long
+        // as its (start) crystal count says, laid out behind the head
+        assert!(
+            (snake.path.length() - motion::length_for(0, &model)).abs() < 0.1,
+            "the fresh body is not the length of a fresh snake"
+        );
+        let tail = snake.path.nodes().last().copied().unwrap();
+        assert!(tail[1] < snake.head()[1], "the body was laid out forwards");
     }
 }

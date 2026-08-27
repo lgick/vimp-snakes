@@ -357,3 +357,117 @@ describe('StatBridge', () => {
     });
   });
 });
+
+// ***** THE RANK *****
+//
+// The engine's own rule is ±1 per kill, and a kill in this game is somebody
+// driving into YOU — a player cannot go and get one, so the rank never moved.
+// The crystals are what a player actually does here.
+describe('StatBridge rank', () => {
+  let stat;
+  let participants;
+  let bridge;
+
+  beforeEach(() => {
+    stat = { updateUser: vi.fn() };
+    participants = participantsFor(['3', '7']);
+    bridge = new StatBridge({ stat, participants });
+  });
+
+  const vimpStub = () => ({
+    addPlayerRank: vi.fn(),
+    getPlayerRank: vi.fn(() => 0),
+    isPlayerRankLoaded: vi.fn(() => true),
+    setPlayerState: vi.fn(),
+    flushPlayerData: vi.fn(),
+  });
+
+  it('pays one point per 25 crystals eaten, in whole points', () => {
+    const vimp = vimpStub();
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 24 }, { vimp });
+    expect(vimp.addPlayerRank).not.toHaveBeenCalled();
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 1 }, { vimp });
+    expect(vimp.addPlayerRank).toHaveBeenCalledWith('3', 1);
+
+    // the remainder is carried, not dropped: the next 25 pay the next point
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 24 }, { vimp });
+    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(1);
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 1 }, { vimp });
+    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(2);
+  });
+
+  it('pays a whole pile in one event its full worth', () => {
+    const vimp = vimpStub();
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 80 }, { vimp });
+
+    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(3);
+  });
+
+  // a crash empties what a snake CARRIES; `eaten` is a lifetime sum, so the
+  // rank already earned cannot be crashed away
+  it('does not take the rank back on a death', () => {
+    const vimp = vimpStub();
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 50 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(2);
+    expect(vimp.addPlayerRank).not.toHaveBeenCalledWith('3', -1);
+  });
+
+  it('still pays the killer a point on top', () => {
+    const vimp = vimpStub();
+
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp });
+
+    expect(vimp.addPlayerRank).toHaveBeenCalledWith('7', 1);
+  });
+});
+
+// This game reaches neither of the engine's own sync boundaries (no round
+// end, no map change), so what it earns has to be pushed to auth explicitly.
+describe('StatBridge profile flush', () => {
+  let stat;
+  let participants;
+  let bridge;
+  let vimp;
+
+  beforeEach(() => {
+    stat = { updateUser: vi.fn() };
+    participants = participantsFor(['3']);
+    bridge = new StatBridge({ stat, participants });
+    vimp = {
+      addPlayerRank: vi.fn(),
+      getPlayerRank: vi.fn(() => 0),
+      isPlayerRankLoaded: vi.fn(() => true),
+      flushPlayerData: vi.fn(),
+    };
+  });
+
+  it('flushes once the rank has moved, then holds off for the interval', () => {
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp });
+    expect(vimp.flushPlayerData).toHaveBeenCalledTimes(1);
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp });
+    expect(vimp.flushPlayerData).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not flush when nothing has been earned', () => {
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 5 }, { vimp });
+    bridge.onCoreEvent({ type: 'population', count: 1 }, { vimp });
+
+    expect(vimp.flushPlayerData).not.toHaveBeenCalled();
+  });
+
+  it('survives an engine build without flushPlayerData', () => {
+    delete vimp.flushPlayerData;
+
+    expect(() =>
+      bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp }),
+    ).not.toThrow();
+  });
+});

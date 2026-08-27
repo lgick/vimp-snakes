@@ -55,12 +55,43 @@
 // scatter on the map anyway.
 const KILL_BONUS = 15;
 
+// ***** WHAT MOVES THE RANK *****
+//
+// `rank` is the engine's cross-game number, the one `/rank` reports and the
+// only one that outlives the session. Its built-in rule is ±1 per KILL, and
+// in this game a kill is somebody driving into YOU: you cannot go and get
+// one. A 20 000-tick headless run with bots ends with every kill credited to
+// a bot and zero for the humans — which is exactly what "my rank is always 0"
+// looks like from the inside.
+//
+// So the rank is fed by the thing a player actually does here: crystals. One
+// point per `CRYSTALS_PER_RANK` swallowed, on top of the point per kill,
+// counted off `eaten` — the counter that never goes down — so a crash costs
+// nothing already earned.
+const CRYSTALS_PER_RANK = 25;
+
+// How often the accumulated rank/state is pushed to the auth service.
+//
+// The engine syncs profiles at the end of a round and at a map change
+// (`RoundManager` -> `PlayerDataSync.flushAll`). This game has neither: the
+// round is endless and the arena is rebuilt underneath the engine
+// (src/host/ArenaScaler.js). Left alone, a match's rank would reach auth only
+// when a participant LEAVES — and the host's own player, whose tab simply
+// closes, would never be written at all. Hence `vimp.flushPlayerData()` on a
+// timer of our own, and only when there is something new to send.
+const FLUSH_INTERVAL_MS = 60_000;
+
 export default class StatBridge {
   constructor({ participants, stat }) {
     this._participants = participants;
     this._stat = stat;
-    // gameId -> { participant, eaten, kills, score, flushedEaten, published }
+    // gameId -> { participant, eaten, kills, score, flushedEaten,
+    //             rankedEaten, published }
     this._totals = new Map();
+    // when the profiles were last pushed to auth, and whether anything has
+    // changed since (see FLUSH_INTERVAL_MS)
+    this._lastFlush = 0;
+    this._rankDirty = false;
   }
 
   // `data` is the payload of a CoreEvent::Custom, `ctx` the `onCoreEvent`
@@ -98,6 +129,9 @@ export default class StatBridge {
       // zero — however high the rank the master returned for them
       case 'population':
         this._publishNewcomers(vimp, panel);
+        // a join or a leave is a natural moment to persist what the room has
+        // earned so far — the only other one this game has is a departure
+        this._maybeFlush(vimp);
         break;
 
       // 'respawn' is deliberately not here: none of the three counters is
@@ -125,7 +159,15 @@ export default class StatBridge {
     record.eaten += gained;
     record.score += gained;
 
+    // whole points only, and off the running total rather than this pickup:
+    // twenty pickups of one crystal are worth the same as one of twenty
+    while (record.eaten - record.rankedEaten >= CRYSTALS_PER_RANK) {
+      record.rankedEaten += CRYSTALS_PER_RANK;
+      this._addRank(gameId, 1, vimp);
+    }
+
     this._publish(gameId, record, vimp, panel);
+    this._maybeFlush(vimp);
   }
 
   // A death pays the killer a flat KILL_BONUS plus one rank point, and then
@@ -153,7 +195,7 @@ export default class StatBridge {
         // this game never emits CoreEvent::Death, so RoundManager.reportKill
         // — the only place the engine touches rank itself — never runs; the
         // optional call keeps old engine builds and test stubs working
-        vimp?.addPlayerRank?.(killerId, 1);
+        this._addRank(killerId, 1, vimp);
 
         this._publish(killerId, killer, vimp, panel);
       }
@@ -163,6 +205,40 @@ export default class StatBridge {
     // panel cell itself; the three counters here survive the crash
     this._publish(gameId, victim, vimp, panel);
     this._recordBest(gameId, victim, vimp);
+    this._maybeFlush(vimp);
+  }
+
+  // One rank point, and a note that auth is now behind. Bots have no profile
+  // on the auth service, so the engine's own call is a no-op for them — the
+  // flag is not, which is why it is set here and not by the callers.
+  _addRank(gameId, delta, vimp) {
+    // the optional call keeps old engine builds and test stubs working: this
+    // game never emits CoreEvent::Death, so RoundManager.reportKill — the
+    // only place the engine touches rank itself — never runs
+    vimp?.addPlayerRank?.(gameId, delta);
+    this._rankDirty = true;
+  }
+
+  // Pushes the profiles to auth if anything changed and the interval is up.
+  // `Date.now()` and not a timer: `createModules` gets no TimerManager, and
+  // the events this bridge already handles arrive many times a second.
+  _maybeFlush(vimp) {
+    if (!this._rankDirty || !vimp?.flushPlayerData) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (now - this._lastFlush < FLUSH_INTERVAL_MS) {
+      return;
+    }
+
+    this._lastFlush = now;
+    this._rankDirty = false;
+
+    // best-effort by contract: the engine's promise never rejects, and a
+    // failed PUT is retried by the next flush with the delta still owed
+    vimp.flushPlayerData();
   }
 
   /// The counters of one game id, created on first sight. Returns null for an
@@ -190,6 +266,8 @@ export default class StatBridge {
       score: 0,
       // how much of `eaten` has already gone into the saved profile
       flushedEaten: 0,
+      // how much of `eaten` has already been paid out as rank
+      rankedEaten: 0,
       // whether the stat row has ever been written for this participant
       published: false,
     };

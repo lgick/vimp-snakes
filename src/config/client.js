@@ -85,9 +85,20 @@ export default {
     },
 
     controls: {
+      // Служебные клавиши движка: 9, 13, 27, 67 (stat, enter, escape, chat) —
+      // они не доходят до игры. 77 ('m', меню опроса) здесь ОТКЛЮЧЕНА: в этой
+      // игре голосовать не за что (одна команда, одна вечная карта), и меню
+      // открывалось пустым. Ключ приходится перекрывать значением, а не
+      // удалять: движковые дефолты сливаются с игровым конфигом рекурсивно
+      // (lib/buildClientConfig.js), так что «нет ключа» означает «остался
+      // движковый». Пустая строка — это отсутствие режима для ControlsModel.
+      modes: {
+        77: '',
+      },
+
       // [0] spectator, [1] player. The engine switches between them by the
-      // KEYSET_DATA port; codes 9, 13, 27, 67 and 77 belong to the engine
-      // (stat, enter, escape, chat, vote) and never reach the game.
+      // KEYSET_DATA port; codes 9, 13, 27 and 67 belong to the engine
+      // (stat, enter, escape, chat) and never reach the game.
       keySetList: [
         {
           78: 'nextPlayer', // n
@@ -242,7 +253,8 @@ export default {
     // Модуля vote здесь нет вовсе. Голосовать в этой игре не за что:
     // команда одна (`noSpectators`), карта одна и вечная, а вход больше не
     // спрашивает «играть или смотреть». Движковые дефолты дают модулю его
-    // elems, меню по 'm' открывается пустым.
+    // elems, но открыть его нечем: клавиша 'm' обезврежена выше
+    // (`modules.controls.modes`), а хост не шлёт VOTE_DATA.
   },
 
   // texts of the GAME_INFORM_DATA port, addressed by index. The indexes are

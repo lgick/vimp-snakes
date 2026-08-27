@@ -25,8 +25,11 @@ typing a message never steers the snake.
 Three ways it ends and only one of them is your fault:
 
 - your head touches the boundary of the disc — you crash;
-- your head touches **another** snake's body — you crash, and everything you
-  were carrying scatters over the map where you died;
+- your head runs into **another** snake **in front of you** — you crash, and
+  everything you were carrying scatters over the map where you died. The
+  crash is only ever the one who drove into it: a snake that swings into you
+  from the side or from behind takes itself out and leaves you alone (two
+  snakes that meet head on are both driving into each other, and both die);
 - your head touches **your own** tail — nothing happens, it passes over.
 
 One number follows you and a crash does not reset it: **score** — the crystals
@@ -37,8 +40,9 @@ the score alone; what you are carrying right now is told by the size of your
 snake. A kill is also worth a point of **rank**, the number `/rank` reports and
 the one that survives the session.
 
-The first two seconds of a life are yours: a fresh snake stands still and
-blinks, kills nobody and cannot be killed. Long enough to read the arena, and
+The first two seconds of a life are yours: a fresh snake appears whole — body
+and all, not a head that has to grow one — stands still and blinks, kills
+nobody and cannot be killed. Long enough to read the arena, and
 long enough for whoever was flying at that spot to steer around you.
 
 The heavier you get the wider you steer: 3.4 rad/s empty, falling with the
@@ -186,6 +190,23 @@ ready-made placeholders in `assets/sounds/`: when `build/sounds/` is absent,
 `scripts/copy-game-sounds.js` falls back to them and the first build stays green
 on a bare machine. The two cues are `pickup` and `death`, both played
 positionally by `src/client/parts/Snake.js`.
+
+## Documentation
+
+Full documentation lives in [docs/en/](docs/en/README.md):
+
+- [Local setup](docs/en/getting-started.md)
+- [Architecture](docs/en/architecture.md)
+- [Gameplay](docs/en/gameplay.md)
+- [Rust core](docs/en/core.md)
+- [Configuration](docs/en/configuration.md)
+- [Extending the game (models, tiers, sounds, parts)](docs/en/extending.md)
+
+[Русская версия](docs/ru/README.md)
+
+For engine-side concepts (transport, master server, plugin contract), see the
+engine's own docs:
+[vimp-engine/docs/en/](https://github.com/lgick/vimp-engine/blob/main/docs/en/README.md).
 
 ## Engine
 

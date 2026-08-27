@@ -163,6 +163,39 @@ impl BodyPath {
         *self = Self::new(x, y);
     }
 
+    /// A body already laid out behind the head, straight along `angle` — what
+    /// a snake spawns with. Without it a new snake is a bare head that grows
+    /// its body only by driving, so the first seconds of a life are spent
+    /// looking like a crystal.
+    ///
+    /// The nodes sit `spacing` apart, exactly where `advance` would have
+    /// dropped them, and the last one lands on the exact length so `trim`
+    /// has nothing to cut on the first step.
+    pub fn reset_with_body(&mut self, x: f32, y: f32, angle: f32, length: f32, spacing: f32) {
+        self.reset(x, y);
+
+        if length <= 0.0 || spacing <= 0.0 {
+            return;
+        }
+
+        // `new` leaves a duplicate of the head behind it as `advance`'s
+        // measuring stick; the breadcrumbs below take its place
+        self.nodes.truncate(1);
+
+        let back = [-angle.cos(), -angle.sin()];
+        let mut travelled = spacing;
+
+        while travelled < length {
+            self.nodes
+                .push_back([x + back[0] * travelled, y + back[1] * travelled]);
+
+            travelled += spacing;
+        }
+
+        self.nodes
+            .push_back([x + back[0] * length, y + back[1] * length]);
+    }
+
     pub fn head(&self) -> [f32; 2] {
         self.nodes.front().copied().unwrap_or([0.0, 0.0])
     }
@@ -303,6 +336,26 @@ impl BodyPath {
     /// 14-unit disc, and the head moves 4.1 units per step even while
     /// boosting — so nothing tunnels and nobody can feel the difference. A
     /// segment test would be the honest version if either number changed.
+    /// True when a node within `reach` of `point` lies AHEAD of it — ahead
+    /// meaning the half-plane the unit vector `facing` points into. The test
+    /// `game.rs` judges a collision by: a body a snake drove INTO is in front
+    /// of its head, a head that arrived from the side or from behind is not
+    /// (see "whose fault it is" there).
+    pub fn touches_ahead(&self, point: [f32; 2], reach: f32, facing: [f32; 2]) -> bool {
+        let reach_sq = reach * reach;
+
+        for node in &self.nodes {
+            let dx = node[0] - point[0];
+            let dy = node[1] - point[1];
+
+            if dx * dx + dy * dy <= reach_sq && dx * facing[0] + dy * facing[1] > 0.0 {
+                return true;
+            }
+        }
+
+        false
+    }
+
     pub fn touches(&self, point: [f32; 2], reach: f32, skip_front: usize) -> bool {
         let reach_sq = reach * reach;
 
@@ -605,6 +658,35 @@ mod tests {
 
         assert!(path.touches([500.0, 0.0], 14.0, 0));
         assert!(!path.touches([500.0, 400.0], 14.0, 0));
+    }
+
+    #[test]
+    fn touches_ahead_takes_the_half_plane_the_head_faces() {
+        let mut path = straight_path(600.0, 6.0);
+
+        path.trim(300.0);
+
+        // the trimmed body runs east from 300 to 600; a head just short of
+        // its tail is driving INTO it facing east, and driving away from it
+        // facing west — the same touch, judged by who drove into whom
+        assert!(path.touches_ahead([292.0, 0.0], 14.0, [1.0, 0.0]));
+        assert!(!path.touches_ahead([292.0, 0.0], 14.0, [-1.0, 0.0]));
+        assert!(!path.touches_ahead([292.0, 400.0], 14.0, [1.0, 0.0]));
+    }
+
+    #[test]
+    fn reset_with_body_lays_the_length_out_behind_the_head() {
+        let mut path = BodyPath::new(0.0, 0.0);
+
+        path.reset_with_body(100.0, 50.0, 0.0, 150.0, 6.0);
+
+        assert_eq!(path.head(), [100.0, 50.0]);
+        assert!((path.length() - 150.0).abs() < 0.01);
+
+        let tail = path.nodes().last().copied().unwrap();
+
+        assert!((tail[0] + 50.0).abs() < 0.01, "tail at {tail:?}");
+        assert!((tail[1] - 50.0).abs() < 0.01, "tail at {tail:?}");
     }
 
     #[test]

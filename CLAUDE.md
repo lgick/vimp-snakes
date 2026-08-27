@@ -3,86 +3,75 @@
 ## Overview
 
 `@vimp-games/snakes` is a game plugin for the VIMP engine: the engine owns
-networking, rounds, chat, panel and stat; this package owns the game. Only
-`dist/` is published. The full contract lives in the engine repository under
-`docs/ai/` (`03-host-plugin`, `04-client-plugin`, `05-wasm-core`,
-`06-snapshot-protocol`, `10-pitfalls`) — read it there, it is not copied here.
+networking, rooms, chat, panel and stat; this package owns the game. Only
+`dist/` is published. The plugin contract lives in the engine repo under
+`docs/ai/` — read it there.
 
-Snake arena: one circular map, always-moving snakes, `A`/`D` to turn, `W` to
-boost at the cost of crystals, `R` to respawn. Crystals grow you and are the
-score. The edge and other snakes' bodies kill; your own tail does not.
+## Documentation
+
+Bilingual docs live in `docs/en/` (canonical, ToC at `docs/en/README.md`) and
+`docs/ru/` (identical structure). **Rule**: any functional change updates the
+matching `docs/en/` and `docs/ru/` pages in the same change. Area → page:
+
+- `src/config/*`, `src/data/*` → `configuration.md`
+- rules (controls, crystals, boost, crashes, score/rank, bots, commands) →
+  `gameplay.md`
+- `core/` (the Rust simulation and the WASM ABI) → `core.md`
+- `src/host/*`, `src/client/*` wiring → `architecture.md`
+- new model/tier/colour/sound/part/command/map → `extending.md`
+- build/link/test setup, `scenarios/`, the dev harness → `getting-started.md`
+
+Engine-side concepts belong to the engine's repo — link out, don't duplicate.
 
 ## Boundaries
 
 - `src/host/` runs in a **Web Worker**: no DOM, no PixiJS, no `window`.
-- `src/client/` runs in the **main thread**: PixiJS parts, bakers and the
-  result screen.
-- `core/` (Rust) owns **all** movement and collisions. There is no physics:
-  a snake is a polyline and everything lethal is a distance test.
+- `src/client/` runs in the **main thread**: PixiJS parts, bakers, overlay.
+- `core/` (Rust) owns **all** movement and collisions. There is no physics: a
+  snake is a polyline and everything lethal is a distance test.
   `core/src/motion.rs` is shared by the host step and the client predictor —
   moving logic out of it desynchronises prediction from the server.
 
-## Five decisions the code depends on
+## The decisions the code depends on
 
-0. **Game ids are STRINGS.** The engine hands them out as
-   `counter.toString(10)` and keys its participant Map by them, while the core
-   writes them into `custom` events as numbers — everything crossing that seam
-   goes through `String()`. Getting it wrong froze the panel and the stat
-   table at zero (`tests/host/statBridge.integration.test.js` guards it).
-1. **`CoreEvent::Death` is never emitted.** A round only ends through a
-   reported kill, and there is no per-player respawn inside a round, so the
-   core owns death and respawn outright. The engine therefore never writes
-   `score`/`deaths` either — `src/host/StatBridge.js` does, off `custom`
-   events, reached from `onCoreEvent` through a module-scope handle set in
-   `createModules` (that hook's context is only `{ vimp, panel }`). The two
-   engine flags in `src/config/game.js` make that official: `noSpectators`
-   (one team, joiner goes straight into it, no vote) and `endlessRound`
-   (the engine never restarts the round or wipes the stat table by itself).
-2. **The arena is derived from the map grid**, by one formula in
-   `core/src/arena.rs`, `src/client/parts/Arena.js` and
-   `src/data/maps/arena.js`. A free-form `gameConfig.parts.*` key reaches the
-   client config but never a part and never the core, which is why the palette
-   and the theme are plain imports (`src/data/palette.js`, `theme.js`). The
-   grid size follows the crowd: the core reports a `population` custom event,
-   `src/host/ArenaScaler.js` rebuilds the map with `buildArena(count)` and
-   hot-swaps it through `coreAdapter.createMap` + `socketManager.sendMap` —
-   never through the engine's own map change, which would wipe the scores.
-3. **Turning has one function, two sources.** Keys and the pointer target
-   (`MoveInput.aim`, a world point from the engine's `apply_aim`) both reduce
-   to the clamped step of `motion::step_angle`, so a mouse never out-turns
-   `turnSpeed` — and the target must enter the predictor's input history
-   (`InputSnapshot`), not just the key mask.
-4. **The player block carries `cos`/`sin`, not the angle.** The drift detector
-   compares components numerically, and a raw angle crossing ±PI reads there as
-   a 6.28 rad divergence.
+Full reasoning: `docs/en/architecture.md`. In short:
+
+0. **Game ids are STRINGS** on the engine side and numbers in core events —
+   everything crossing that seam goes through `String()`.
+1. **`CoreEvent::Death` is never emitted**: the core owns death and respawn, so
+   `src/host/StatBridge.js` owns `score` *and* `rank` (a point per kill plus
+   one per `CRYSTALS_PER_RANK` eaten, flushed with `vimp.flushPlayerData()`).
+   `noSpectators` + `endlessRound` in `src/config/game.js` make that official.
+2. **The arena is derived from the map grid** by one formula in
+   `core/src/arena.rs`, `src/client/parts/Arena.js`, `src/data/maps/arena.js`,
+   and it grows with the crowd through `src/host/ArenaScaler.js` — never
+   through the engine's own map change, which would wipe the scores.
+3. **Turning has one function, two sources**: keys and the pointer target both
+   reduce to `motion::step_angle`, and the target must enter the predictor's
+   input history.
+4. A free-form `gameConfig.parts.*` key reaches the client config but never a
+   part and never the core — hence the plain imports of `palette.js`/`theme.js`
+   and the `world` block nested in the snake model.
 
 ## Contract constants
 
-- `ENGINE_API_VERSION` is always imported from
-  `vimp-engine/config/opcodes.js`, never written as a literal.
-- `PLAYER_STATE_LEN = 8` — `[x, y, cos, sin, crystals, length, alive, grace]`;
-  the last slot is the SECONDS of spawn grace left, and the predictor freezes
-  while it burns them down in step with the host (a flag there would keep the
-  replica frozen a round trip past the moment the host resumed).
-- `SPINE_POINTS = 16` — the resampled body carried per snake row. Declared in
-  `src/config/snapshot.js`, `core/src/motion.rs` and
-  `src/client/parts/Snake.js`; `tests/config/contract.test.js` compares them.
-- `players_json()` must emit rows in **schema order**: it is the payload a
-  joining client gets as its first full frame.
-- Hot snapshot buffers are `indexed8` / `indexedNoNull8` only; crystals are an
-  `indexed32` **delta** block (`cr`), re-sent in full whenever an actor spawns.
-- `src/config/auth.js` must declare the `model` parameter — the engine expects
-  that exact name.
+- `ENGINE_API_VERSION` is always imported from `vimp-engine/config/opcodes.js`.
+- `PLAYER_STATE_LEN = 8` — `[x, y, cos, sin, crystals, length, alive, grace]`:
+  cos/sin, not the angle, and grace in SECONDS, not a flag.
+- `SPINE_POINTS = 16` — declared in `src/config/snapshot.js`,
+  `core/src/motion.rs` and `src/client/parts/Snake.js`; the contract test
+  compares them.
+- `players_json()` emits rows in **schema order** (a joining client's first
+  full frame); hot blocks are `indexed8`/`indexedNoNull8` only; `cr` is an
+  `indexed32` delta re-sent in full on every actor spawn.
+- `src/config/auth.js` must declare the `model` parameter under that name.
 
 ## Order of work
 
-1. snapshot schema and `src/config/` — decide what travels the wire first;
-2. Rust simulation in `core/`, with `npm run core:test` green (the parity suite
-   in `core/src/client/predictor.rs` is the one that catches a movement change
-   applied to only one half);
-3. `npm run check:contract` and `npm run sim` — the machine reads the
-   invariants the browser only hints at;
-4. rendering: `src/client/parts/` and bakers.
+Snapshot schema and `src/config/` → the Rust simulation with
+`npm run core:test` green (the parity suite in
+`core/src/client/predictor.rs` catches a movement change applied to one half
+only) → `npm run check:contract` and `npm run sim` → rendering.
 
 ## Commands
 
@@ -95,24 +84,9 @@ npm run build
 npm run dev
 ```
 
-Headless run, from the **engine** checkout with this package linked:
-
-```bash
-npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/<name>.json
-```
-
-The sim loads the **built** plugin, so `npm run build` first or you are
-testing the previous version. `scenarios/` holds five: `movement`
-(drift-watching), `crash-and-respawn`, `growth` (bots, crystals, boost),
-`pointer` (mouse/touch steering, also drift-watching) and `bots` (`/bot` as a
-set: 6 → 2 → refused → 0). All pass with `--determinism`; `roundLifecycle`
-skips by design, this game has no round end.
-
-Chat commands: the engine parses **none** of its own, so `chatCommands` in
-`src/host/index.js` is the whole set a player can type — `/bot <count>`
-(exact number of bots, `/bot 0` clears them) plus `/name`, `/nr`, `/rank` from
-`src/host/metaCommands.js`. `/timeleft` and `/mapname` are deliberately absent:
-this game has no round or map that ends.
+The headless runner lives in the engine checkout and loads the **built**
+plugin (`npm run build` first); `scenarios/` holds five, all passing with
+`--determinism`. See `docs/en/getting-started.md`.
 
 Any functional change updates the tests covering it in the same change;
 `npx eslint .` and `npm test` end every change green.

@@ -321,7 +321,7 @@ impl Predictor {
         // path belongs to it, and blending the jump would drag the corpse's
         // shape across the arena
         if respawned || old.is_none() {
-            self.path.reset(self.state.x, self.state.y);
+            self.reset_path();
         }
 
         let server_now_est = local_now + offset;
@@ -430,13 +430,37 @@ impl Predictor {
     /// bounded — a snake boosting through its last crystals predicts one
     /// reconciliation's worth of extra speed, and `speed` is a component of
     /// the player block, so `predicted_state` reports it if it ever matters.
+    /// The replica's body, laid out straight behind the head — the mirror of
+    /// `Snake::lay_out_body`. A snake enters the arena whole on the host, so
+    /// the local half must not draw a bare head for the round trip it takes
+    /// the first spine to arrive.
+    fn reset_path(&mut self) {
+        let spacing = self.model.as_ref().map_or(0.0, |model| model.point_spacing);
+
+        self.path.reset_with_body(
+            self.state.x,
+            self.state.y,
+            self.state.angle,
+            self.state.length,
+            spacing,
+        );
+    }
+
     fn step(&mut self, input: InputSnapshot) {
         let Some(model) = &self.model else {
             return;
         };
 
         if self.path.node_count() < 2 {
-            self.path.reset(self.state.x, self.state.y);
+            let spacing = model.point_spacing;
+            let (x, y, angle, length) = (
+                self.state.x,
+                self.state.y,
+                self.state.angle,
+                self.state.length,
+            );
+
+            self.path.reset_with_body(x, y, angle, length, spacing);
         }
 
         let dt = (self.step_ms / 1000.0) as f32;
