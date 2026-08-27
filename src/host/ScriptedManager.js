@@ -111,14 +111,9 @@ export default class ScriptedManager {
   removeScripted(teamName = null) {
     const scripted = this._participants.getScripted();
 
-    // The copy is not a style choice. `getScripted()` hands back the registry's
-    // LIVE array, and `_remove` splices out of that same array — iterating it
-    // directly skips every second bot, so a map change with four of them
-    // removes two. `filter` already returns a new array; the other branch has
-    // to make one.
     const toRemove = teamName
       ? scripted.filter(participant => participant.team === teamName)
-      : [...scripted];
+      : scripted;
 
     toRemove.forEach(participant => this._remove(participant.gameId));
   }

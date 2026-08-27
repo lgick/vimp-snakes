@@ -97,7 +97,10 @@ function createContext({ teamSizes = { [TEAM]: 0 }, isFull = false } = {}) {
       return gameId;
     },
     get: gameId => created.find(item => item.gameId === gameId),
-    getScripted: () => created,
+    // a new array per call, exactly like the engine's own
+    // `ParticipantManager.getScripted()` (`getAll().filter(...)`): the double
+    // used to hand out its live storage, which `remove` then spliced
+    getScripted: () => [...created],
     remove: gameId => {
       const index = created.findIndex(item => item.gameId === gameId);
 

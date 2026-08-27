@@ -195,9 +195,13 @@ export default class ArenaScaler {
     this._coreAdapter.createMap(this._mapData);
     this._scriptedManager?.createMap(this._mapData);
 
-    // a client that joined between two resizes holds the catalog map; the
-    // bookkeeping is cleared so the broadcast below reaches everyone
-    this._delivered.clear();
+    // `_delivered` is deliberately NOT cleared. A round restart sends the
+    // clients no map at all (`_startRound` sends sendClear and the default
+    // keysets), so the copy they hold is still the one in force — and a
+    // MAP_DATA they do not need is not free: it destroys the parts of this
+    // setId and rebuilds the whole arena. A client that joined between two
+    // resizes has no `_delivered` entry to begin with and is caught by the
+    // broadcast below.
     this._broadcast();
   }
 

@@ -155,6 +155,11 @@ pub struct SnakesSim {
     /// The map's respawn points, as the engine last sent them. Kept because
     /// `spawn_actor` has to search for a free spot and the map is only
     /// handed in on the fixed step.
+    ///
+    /// Refreshed in the same place as `Arena` (`on_fixed_step`), so the
+    /// candidates and the boundary always come from one and the same map: a
+    /// hot map swap (`ArenaScaler`) leaves both stale until the next step,
+    /// never one of them.
     spawn_slots: Vec<[f32; 3]>,
     field: CrystalField,
     snakes: IndexMap<u32, Snake>,
@@ -277,7 +282,9 @@ impl SnakesSim {
     /// spawning on the same tick do not try the same spots in the same order.
     /// EVERY slot is tried before giving up: this walk is deterministic and
     /// finite, and stopping early would return an occupied point while a free
-    /// one was still on the list.
+    /// one was still on the list. That holds for a list of ANY length — the
+    /// counter runs over the full range of the bit-reversal, not over the
+    /// number of slots, see the comment at the loop.
     ///
     /// `skip` is the snake being respawned, if it already exists (see
     /// `is_clear_except`).
@@ -302,14 +309,26 @@ impl SnakesSim {
 
         let bits = usize::BITS - (slots - 1).leading_zeros();
 
-        for attempt in 0..slots {
-            let k = reverse_bits((seed + attempt) % slots, bits);
+        // the counter is walked over the FULL range of the permutation, not
+        // over the number of slots: `reverse_bits` is a bijection on
+        // `[0, 2^bits)` and nothing else. Walking `0..slots` instead sends
+        // part of the images past `slots`, and the indices those images would
+        // have covered are then unreachable for EVERY seed — five points, and
+        // number 3 is never tried. The overshooting images are skipped here,
+        // so every index below `slots` still comes up exactly once, at the
+        // price of at most `2 * slots` iterations outside the hot loop.
+        let span = 1usize << bits;
+        let mut tried = 0;
 
-            // the bit-reversal of a range that is not a power of two overshoots
-            // it; those indices are simply not candidates
+        for attempt in 0..span {
+            let k = reverse_bits((seed + attempt) % span, bits);
+
+            // the image is past the end of the list: not a candidate
             let Some(slot) = self.spawn_slots.get(k) else {
                 continue;
             };
+
+            tried += 1;
 
             let point = [slot[0], slot[1]];
 
@@ -317,6 +336,8 @@ impl SnakesSim {
                 return self.facing_centre(point);
             }
         }
+
+        debug_assert_eq!(tried, slots, "the walk must visit every slot exactly once");
 
         self.find_spawn_off_slots(seed, requested, skip)
     }
@@ -1510,6 +1531,44 @@ mod tests {
     }
 
     #[test]
+    fn a_map_point_count_that_is_not_a_power_of_two_loses_no_point() {
+        // five points: the bit-reversal is a permutation of eight, and a walk
+        // counted in FIVES sends three of its images past the end of the list
+        // while never producing index 3 at all. The one free point of the map
+        // is exactly that index — a walk that skips it would fall through to
+        // the disc scan and stand the snake somewhere off the map's geometry
+        let mut game = game_with_grace(2.0);
+        let taken = [
+            [1280.0, 1280.0, 0.0],
+            [700.0, 1280.0, 0.0],
+            [1860.0, 1280.0, 0.0],
+        ];
+        let free = [1280.0, 680.0, 0.0];
+        let points = [taken[0], taken[1], taken[2], free, [1280.0, 1880.0, 0.0]];
+
+        game.load_map(&map_json_with_respawns(&points)).unwrap();
+        game.step(DT);
+
+        // everything but index 3, each snake on the point it asks for
+        for (i, id) in [0usize, 1, 2, 4].iter().zip(1u32..) {
+            let p = points[*i];
+
+            game.spawn_actor(id, "s1", 1, p[0], p[1], p[2]).unwrap();
+        }
+
+        // an occupied point: the search has to find the only free one
+        game.spawn_actor(5, "s1", 1, points[0][0], points[0][1], 0.0)
+            .unwrap();
+
+        let spot = game.actor_position(5).unwrap();
+
+        assert!(
+            (spot[0] - free[0]).abs() < 0.01 && (spot[1] - free[1]).abs() < 0.01,
+            "expected the map's free point {free:?}, got {spot:?}"
+        );
+    }
+
+    #[test]
     fn a_crowd_past_the_map_points_still_gets_room_instead_of_a_heap() {
         // one point on the map and forty snakes: the map's list runs out and
         // the fallback scan of the disc takes over. Nobody may be left
@@ -1533,15 +1592,19 @@ mod tests {
 
         let mut stacked = 0;
 
+        // the yardstick is the clearance the search itself keeps, not a
+        // token unit of world: a test that only forbids literally the same
+        // coordinates would pass on a heap and miss the regression of the
+        // fallback scan it is written for
         for (i, a) in spots.iter().enumerate() {
             for b in &spots[i + 1..] {
-                if (a[0] - b[0]).hypot(a[1] - b[1]) < 1.0 {
+                if (a[0] - b[0]).hypot(a[1] - b[1]) < RESPAWN_CLEARANCE {
                     stacked += 1;
                 }
             }
         }
 
-        assert_eq!(stacked, 0, "{stacked} pairs of snakes share a point");
+        assert_eq!(stacked, 0, "{stacked} pairs of snakes stand too close");
     }
 
     #[test]

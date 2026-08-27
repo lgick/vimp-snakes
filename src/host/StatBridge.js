@@ -50,6 +50,7 @@
 // All the stat columns are declared with `bodyMethod: '='` and every panel
 // write is a 'set': these are totals, not deltas, so a re-sent value is
 // harmless and a dropped one self-heals on the next event.
+
 // What one kill is worth in `score`, on top of the victim's crystals that
 // scatter on the map anyway.
 const KILL_BONUS = 15;
@@ -58,7 +59,7 @@ export default class StatBridge {
   constructor({ participants, stat }) {
     this._participants = participants;
     this._stat = stat;
-    // gameId -> { participant, eaten, kills, score, flushedEaten }
+    // gameId -> { participant, eaten, kills, score, flushedEaten, published }
     this._totals = new Map();
   }
 
@@ -202,13 +203,20 @@ export default class StatBridge {
   //
   // Only the first time: after that the row is owned by the events, and
   // rewriting it here would cost a stat message per join for everyone in the
-  // room. `PlayerDataSync.load` is asynchronous, so a rank may still be
-  // missing at this point — `_publish` skips it then, and the player's first
-  // crystal fills the cell in.
+  // room. `PlayerDataSync.load` is asynchronous, so the rank may not have
+  // arrived yet — a row written without it does not count as written, and
+  // the next join or leave tries again (see `_publish`).
   _publishNewcomers(vimp, panel) {
     for (const participant of this._participants.getAll()) {
       const gameId = participant.gameId;
-      const record = this._record(gameId);
+      // the record this participant already has, if it is theirs: `_record`
+      // creates one as a side effect, and a method called "publish" has no
+      // business seeding state for the whole room. A record left by a
+      // PREVIOUS holder of this id is not theirs — `_record` is what starts
+      // the counters over, so that case goes through it
+      const cached = this._totals.get(gameId);
+      const record =
+        cached?.participant === participant ? cached : this._record(gameId);
 
       if (record && !record.published) {
         this._publish(gameId, record, vimp, panel);
@@ -226,20 +234,29 @@ export default class StatBridge {
   // saw throws, so that order matters.
   //
   // The rank comes from the engine (`HostGame.getPlayerRank`), not from a
-  // counter of our own — `vimp.addPlayerRank()` is what moves it. A missing
-  // method or a missing player gives `undefined`, and that is NOT written:
-  // the column is bodyMethod '=', so an empty value would replace the last
-  // known rank with a blank cell.
+  // counter of our own — `vimp.addPlayerRank()` is what moves it. It is
+  // written only once the engine says it has actually arrived: the column is
+  // bodyMethod '=', and `getPlayerRank` answers 0 both for an id it does not
+  // know and for one whose `PlayerDataSync.load()` is still in flight, so a
+  // blind write puts a flat zero in the place of a rank of 120. An engine
+  // build without `isPlayerRankLoaded` simply never gets the column written
+  // by this bridge — a missing rank is a cell the player has not filled yet,
+  // a wrong one is a lie the table keeps repeating.
+  //
+  // The row counts as PUBLISHED only when the rank made it in. Everything
+  // 'population' owes a newcomer has to be in that row, and until the rank is
+  // there the next join or leave has to try again — of which there are
+  // exactly as many as there are joins and leaves.
   _publish(gameId, record, vimp, panel) {
     const { score } = record;
-    const rank = vimp?.getPlayerRank?.(gameId);
     const columns = { score };
+    const rankReady = vimp?.isPlayerRankLoaded?.(gameId) ?? false;
 
-    if (rank !== undefined && rank !== null) {
-      columns.rank = rank;
+    if (rankReady) {
+      columns.rank = vimp.getPlayerRank(gameId);
     }
 
-    record.published = true;
+    record.published = rankReady;
 
     this._stat.updateUser(gameId, record.participant.teamId, columns);
 

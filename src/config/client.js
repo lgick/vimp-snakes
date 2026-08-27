@@ -131,15 +131,30 @@ export default {
         // owns 'g' (see src/host/systemMessages.js).
         //
         // Several of the engine's texts are unreachable here (there is no
-        // spectator status to switch to and no vote to hold), but the index
-        // inside a group IS the code: dropping one shifts every text after it
-        // onto the wrong event. They stay.
+        // spectator status to switch to, no second team to move to and no
+        // vote to hold), but the index inside a group IS the code: dropping
+        // one shifts every text after it onto the wrong event. They stay, and
+        // they are worded for THIS game — a text that talks about teams to a
+        // player who has none is a text that can only mislead.
+        //
+        // The engine's own wording of s:0 is
+        // `Team {0} is full. Your current team: {1}`, and under noSpectators
+        // it is passed the one team twice: the player would read that they
+        // are in the game while the whole point of the message is that they
+        // have no snake. Both parameters are therefore ignored here.
         messages: {
           s: [
-            'Team {0} is full. Your current team: {1}',
-            'Your team: {0}',
-            'Your new team: {0}',
-            'Your new status: spectator',
+            // the only text of this group the game reaches: every respawn
+            // point of the arena is taken (RoundManager.admitPlayer). The
+            // player stays in the room, sees the arena and gets a snake from
+            // the next free place
+            'The arena is full. You will join as soon as a place frees up',
+            'You are already in the arena',
+            'You are in the arena',
+            'You are watching the arena',
+            // the engine's kill report: this game never emits
+            // CoreEvent::Death, so it never fires — crashes are counted by
+            // src/host/StatBridge.js instead
             '{0} crashed into {1}',
             '{0} joined the game',
             '{0} left the game',

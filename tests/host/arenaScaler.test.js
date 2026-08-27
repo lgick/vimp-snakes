@@ -217,8 +217,10 @@ describe('ArenaScaler', () => {
 
   // the engine's round restart hands the core the map the ROOM was loaded
   // with — the base size — so anything that restarts a round has to put the
-  // size in force back (src/host/botCommand.js)
-  it('re-sends the map in force without touching the hysteresis', () => {
+  // size in force back (src/host/botCommand.js). The clients are NOT part of
+  // that: a round restart sends them no map, so theirs is still current and
+  // a MAP_DATA would only make them rebuild the arena for nothing
+  it('re-sends the map in force to the core without re-sending it to the clients', () => {
     scaler.onCoreEvent({ type: 'population', count: 20 });
 
     const inForce = scaler.mapData;
@@ -231,14 +233,26 @@ describe('ArenaScaler', () => {
 
     expect(coreAdapter.createMap).toHaveBeenCalledWith(inForce);
     expect(scripted.createMap).toHaveBeenCalledWith(inForce);
-    expect(socketManager.sendMap.mock.calls.map(call => call[0])).toEqual([
-      's1',
-      's2',
-    ]);
+    expect(socketManager.sendMap).not.toHaveBeenCalled();
 
     // the crowd did not change, so neither does what a shrink waits for
     scaler.onCoreEvent({ type: 'population', count: 19 });
     expect(scaler.mapData).toBe(inForce);
+  });
+
+  it('still catches up a client that has never been sent the map in force', () => {
+    scaler.onCoreEvent({ type: 'population', count: 20 });
+
+    // joined after the resize: the engine handed them the catalog map and
+    // this bookkeeping has no entry for them
+    users.push(human(3));
+    socketManager.sendMap.mockClear();
+
+    scaler.reapply();
+
+    expect(socketManager.sendMap.mock.calls.map(call => call[0])).toEqual([
+      's3',
+    ]);
   });
 
   // the engine hands out respawn points from its OWN copy of the map — the

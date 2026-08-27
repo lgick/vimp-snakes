@@ -162,7 +162,10 @@ describe('StatBridge', () => {
   it('publishes the rank the engine keeps, next to the score', () => {
     // the bridge counts no rank of its own: `addPlayerRank` moves it and
     // `getPlayerRank` reads it back at publish time
-    const vimp = { getPlayerRank: vi.fn(() => 4) };
+    const vimp = {
+      getPlayerRank: vi.fn(() => 4),
+      isPlayerRankLoaded: vi.fn(() => true),
+    };
 
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
 
@@ -170,17 +173,22 @@ describe('StatBridge', () => {
     expect(statOf(stat, '3')).toEqual({ score: 4, rank: 4 });
   });
 
-  it('writes no rank at all when the engine has none for the id', () => {
-    // the column is bodyMethod '=', so publishing undefined would replace the
-    // last known rank with an empty cell
-    const vimp = { getPlayerRank: vi.fn(() => undefined) };
+  it('writes no rank at all until the engine says it has one', () => {
+    // `getPlayerRank` answers 0 both for an unknown id and for one still
+    // waiting on the master, and the column is bodyMethod '=' — publishing
+    // that zero would replace a rank of 120 with a flat zero
+    const vimp = {
+      getPlayerRank: vi.fn(() => 0),
+      isPlayerRankLoaded: vi.fn(() => false),
+    };
 
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
 
     expect(statOf(stat, '3')).toEqual({ score: 4 });
+    expect(vimp.getPlayerRank).not.toHaveBeenCalled();
   });
 
-  it('survives an engine build without getPlayerRank', () => {
+  it('survives an engine build without the rank getters', () => {
     expect(() => bridge.onCoreEvent(
       { type: 'crystals', id: 3, total: 4, gained: 4 },
       { vimp: {}, panel },
@@ -270,7 +278,10 @@ describe('StatBridge', () => {
   // zero, however high the rank the master returned
   describe('newcomers', () => {
     it('writes the row of a participant nobody has scored for yet', () => {
-      const vimp = { getPlayerRank: vi.fn(() => 120) };
+      const vimp = {
+        getPlayerRank: vi.fn(() => 120),
+        isPlayerRankLoaded: vi.fn(() => true),
+      };
 
       bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
 
@@ -279,7 +290,10 @@ describe('StatBridge', () => {
     });
 
     it('writes it once and leaves the row to the events after that', () => {
-      const vimp = { getPlayerRank: vi.fn(() => 1) };
+      const vimp = {
+        getPlayerRank: vi.fn(() => 1),
+        isPlayerRankLoaded: vi.fn(() => true),
+      };
 
       bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
       stat.updateUser.mockClear();
@@ -290,7 +304,10 @@ describe('StatBridge', () => {
     });
 
     it('publishes a row again when the id changes hands', () => {
-      const vimp = { getPlayerRank: vi.fn(() => 5) };
+      const vimp = {
+        getPlayerRank: vi.fn(() => 5),
+        isPlayerRankLoaded: vi.fn(() => true),
+      };
 
       bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
 
@@ -302,6 +319,33 @@ describe('StatBridge', () => {
 
       expect(statOf(stat, '3')).toEqual({ score: 0, rank: 5 });
       expect(statOf(stat, '7')).toBe(null);
+    });
+
+    // `PlayerDataSync.load` puts an entry with rank 0 in place synchronously
+    // and goes off to await the real number, so 'population' can easily beat
+    // it. A row written then is missing the rank the event was supposed to
+    // show, and must not be counted as written
+    it('tries again on the next population report while the rank is missing', () => {
+      let loaded = false;
+      const vimp = {
+        getPlayerRank: vi.fn(() => 120),
+        isPlayerRankLoaded: vi.fn(() => loaded),
+      };
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(statOf(stat, '3')).toEqual({ score: 0 });
+
+      loaded = true;
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 120 });
+
+      // and now the row IS written: the events own it from here
+      stat.updateUser.mockClear();
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(stat.updateUser).not.toHaveBeenCalled();
     });
 
     it('survives an engine without the rank getters', () => {
