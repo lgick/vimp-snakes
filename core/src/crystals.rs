@@ -122,6 +122,35 @@ impl CrystalField {
         true
     }
 
+    /// Drops every crystal the arena no longer holds, and returns how many
+    /// went. Each one leaves a `null` row behind like an eaten one does.
+    ///
+    /// The disc is rebuilt under the running match (`src/host/ArenaScaler.js`
+    /// shrinks it as the room empties), and a shrink leaves whatever stood in
+    /// the old ring outside the new boundary. Those crystals are not merely
+    /// awkward, they are UNREACHABLE: a head is stopped by the boundary at
+    /// `radius - snake_radius`, and its pickup reach is `snake_radius +
+    /// tier.radius`, so nothing can ever come within `radius + tier.radius`
+    /// of the centre — the snake radius cancels and no snake, thin or fat,
+    /// can get to them. Worse, they keep counting against `max_crystals`, so
+    /// the field stops refilling and the arena starves on food nobody can
+    /// eat. They go with the ground they stood on.
+    pub fn retain_inside(&mut self, arena: &Arena) -> usize {
+        let doomed: Vec<u32> = self
+            .crystals
+            .iter()
+            .filter(|(_, crystal)| !arena.contains([crystal.x, crystal.y], 0.0))
+            .map(|(&id, _)| id)
+            .collect();
+
+        for id in &doomed {
+            self.crystals.shift_remove(id);
+            self.removed.push(*id);
+        }
+
+        doomed.len()
+    }
+
     /// Eats the first crystal whose disc overlaps `point`, and returns the
     /// crystals it is worth. `reach` is the snake's own radius — the tier's
     /// radius is added here so a big crystal is easier to catch.
@@ -353,6 +382,33 @@ mod tests {
 
         assert_eq!(rows.len(), 5);
         assert!(rows.iter().all(|(_, row)| row.is_some()));
+    }
+
+    #[test]
+    fn a_shrunken_arena_drops_the_crystals_it_no_longer_holds() {
+        let mut field = CrystalField::default();
+        let mut rng = Rng::new(7);
+        let world = world();
+        let big = Arena { centre: [0.0, 0.0], radius: 1000.0 };
+        let small = Arena { centre: [0.0, 0.0], radius: 500.0 };
+
+        field.drop_at([0.0, 0.0], 0, &mut rng, &world);
+        field.drop_at([400.0, 0.0], 0, &mut rng, &world);
+        // inside the big disc, outside the small one — this is the crystal
+        // the snake could see and never eat
+        field.drop_at([800.0, 0.0], 0, &mut rng, &world);
+        field.drain_block();
+
+        assert_eq!(field.retain_inside(&big), 0, "nothing to drop yet");
+
+        assert_eq!(field.retain_inside(&small), 1);
+        assert_eq!(field.len(), 2);
+
+        // and the clients are told, or they would keep drawing it
+        let rows = field.drain_block().expect("a stranded crystal is a delta");
+
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].1.is_none(), "a removal is a null row");
     }
 
     #[test]

@@ -209,6 +209,17 @@ with the tier rolled from `tier_weights`. Pickup is a distance test against
 the head. `request_resync()` re-sends the whole field; `game.rs` calls it
 whenever an actor spawns.
 
+**A shrinking arena takes its crystals with it.** The disc is rebuilt under
+the running match, and when it shrinks everything left in the old ring is
+outside the new boundary. Those crystals are unreachable rather than merely
+awkward: a head is stopped at `radius - snake_radius` and reaches
+`snake_radius + tier.radius`, so the snake radius cancels and nothing, thin
+or fat, ever gets within `radius + tier.radius` of the centre. They also keep
+counting against `max_crystals`, so the field stops refilling and the arena
+starves on food nobody can eat — a 2560 → 1280 shrink stranded 44 of 60.
+`retain_inside()` drops them as ordinary `null` rows the moment
+`on_fixed_step` sees the radius or the centre change.
+
 ## Bots
 
 `drive_bot` (`game.rs`) is deliberately small: a bot steers for the nearest
@@ -259,7 +270,7 @@ the step.
 | `motion.rs` | the turn clamp, both input sources, growth curves, `BodyPath` (advance/trim/resample/touches/`touches_ahead`/`reset_with_body`) |
 | `snake.rs` | key semantics (held vs one-shot), the pointer, the boost drain and its floor, respawn, the grace, the prediction block |
 | `game.rs` | the grace (frozen, harmless, unkillable), the fault rule, spawning whole, respawn placement (spread, map points first, no self-collision), the boost byte, the `burn` event reporting every crystal the boost sheds, row width vs the schema |
-| `crystals.rs` | spawn cadence and cap, pickup, death drops, the delta and the resync |
+| `crystals.rs` | spawn cadence and cap, pickup, death drops, the delta and the resync, the crystals a shrinking arena leaves behind |
 | `arena.rs` | the disc derived from a grid, `contains` with a radius |
 | `client/predictor.rs` | **the parity suite** — the replica and the authoritative step must produce the same positions from the same inputs, including through the grace |
 

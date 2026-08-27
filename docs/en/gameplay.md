@@ -58,6 +58,12 @@ core's `population` event and hot-swaps the map without an engine map change,
 so nobody loses their score to a resize. Below eight players the size is
 pinned — a duel in a pond is worse than a duel in a lake.
 
+A **shrink takes the outskirts with it**: crystals left outside the new
+boundary are removed rather than stranded there. Outside the disc they could
+never be eaten — the boundary stops a head before its pickup reach gets to
+them — and they would go on filling `world.maxCrystals`, so the arena would
+starve on food nobody could reach ([core.md](core.md#the-crystal-field-crystalsrs)).
+
 Respawn points are a sunflower spiral of 64 points, handed out in
 bit-reversed order so that any small wave of joiners is spread over the whole
 disc instead of piling into the middle; every point faces the centre, fanned

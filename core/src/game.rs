@@ -904,7 +904,22 @@ impl GameSim<SnakesGame> for SnakesSim {
             return;
         };
 
-        self.arena = Arena::from_map(map);
+        let arena = Arena::from_map(map);
+
+        // The arena is rebuilt from the map every step, but it only CHANGES
+        // when the host resizes it under the running match
+        // (`src/host/ArenaScaler.js`). A shrink is the moment the crystal
+        // field has to be told about: everything left in the old ring is now
+        // outside the disc, and `retain_inside` explains why that cannot be
+        // left alone. Radius zero is "no map loaded yet", not an empty arena,
+        // so it clears nothing.
+        if arena.radius > 0.0
+            && (arena.radius != self.arena.radius || arena.centre != self.arena.centre)
+        {
+            self.field.retain_inside(&arena);
+        }
+
+        self.arena = arena;
 
         if self.arena.radius <= 0.0 {
             return;
@@ -1767,6 +1782,82 @@ mod tests {
         game.load_map(MAP_JSON).unwrap();
 
         game
+    }
+
+    /// A square map of `cols` cells of 128 — the disc it derives is
+    /// `cols * 128 / 2`, so this is how a test resizes the arena the way
+    /// `src/host/ArenaScaler.js` does at runtime.
+    fn map_json_of(cols: usize) -> String {
+        let row = format!("[{}]", vec!["1"; cols].join(","));
+        let rows = vec![row; cols].join(",");
+        let centre = cols as f32 * 128.0 / 2.0;
+
+        format!(
+            r#"{{ "setId": "c1", "scale": 1, "step": 128,
+                 "physicsStatic": [], "physicsDynamic": [],
+                 "map": [{rows}],
+                 "respawns": {{ "players": [[{centre}, {centre}, 0]] }} }}"#
+        )
+    }
+
+    #[test]
+    fn a_shrinking_arena_takes_its_crystals_with_it() {
+        // The bug this locks down: the arena shrinks as the room empties, and
+        // everything left in the old ring is outside the new disc. A head is
+        // stopped by the boundary, so those crystals can never be eaten — and
+        // they still fill `maxCrystals`, so the field stops refilling and the
+        // arena starves on food nobody can reach. Before the fix a 2560 ->
+        // 1280 shrink stranded 44 of 60.
+        let mut value = config_json(0.0);
+
+        value["models"]["s1"]["world"]["maxCrystals"] = json!(60);
+
+        let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
+        let engine: EngineConfig = serde_json::from_value(value).unwrap();
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(&map_json_of(40)).unwrap();
+        game.spawn_actor(1, "s1", 1, 2560.0, 2560.0, 0.0).unwrap();
+
+        for _ in 0..4000 {
+            game.step(DT);
+        }
+
+        assert_eq!(game.sim.field.len(), 60, "the big arena never filled up");
+
+        // the room empties and the host rebuilds the base disc
+        game.load_map(&map_json_of(20)).unwrap();
+        game.step(DT);
+
+        let arena = game.sim.arena;
+        let stranded = game
+            .sim
+            .field
+            .iter()
+            .filter(|(_, crystal)| {
+                let dx = crystal.x - arena.centre[0];
+                let dy = crystal.y - arena.centre[1];
+
+                (dx * dx + dy * dy).sqrt() > arena.radius
+            })
+            .count();
+
+        assert_eq!(stranded, 0, "crystals left outside the shrunken arena");
+
+        // and the freed slots are filled again rather than held by ghosts
+        let after_shrink = game.sim.field.len();
+
+        assert!(after_shrink < 60, "nothing was outside to begin with");
+
+        for _ in 0..4000 {
+            game.step(DT);
+        }
+
+        assert!(
+            game.sim.field.len() > after_shrink,
+            "the field did not refill: {after_shrink} -> {}",
+            game.sim.field.len()
+        );
     }
 
     /// The `burn` payloads of one step, in order.
