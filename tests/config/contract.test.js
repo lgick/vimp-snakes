@@ -169,48 +169,36 @@ describe('client config', () => {
     }
   });
 
-  it('matches every stat column to the host index that fills it', () => {
-    // The columns are resolved POSITIONALLY: the host writes by name, the
-    // engine turns the name into `key`, and the client array is read by that
-    // index. A column inserted on one side only shifts every column after it.
-    const { columns } = clientConfig.modules.stat.params;
-    const { stat } = hostPlugin.gameConfig;
+  // snakes-v3: Tab shows the game's GLOBAL top ten, not this room, so the
+  // client columns no longer line up with the host's `key` indexes — there is
+  // nothing to line them up with. What the client half must carry instead is
+  // the mode and the slice it asks auth for.
+  it('asks for the daily top ten instead of the room table', () => {
+    const { params } = clientConfig.modules.stat;
 
-    expect(columns).toHaveLength(Object.keys(stat).length);
-
-    for (const [name, { key }] of Object.entries(stat)) {
-      expect(columns[key], `${name} -> ${key}`).toBeDefined();
-    }
+    expect(params.mode).toBe('leaderboard');
+    expect(params.period).toBe('day');
+    expect(params.limit).toBe(10);
+    expect(params.columns).toEqual(['#', 'snake', 'score']);
+    // the order comes from auth: nothing to sort, and no team in a global list
+    expect(params.sortList).toBeUndefined();
+    expect(params.bodies).toBeUndefined();
+    expect(params.heads).toBeUndefined();
   });
 
-  it('shows exactly name, status, rank, score and ping', () => {
-    // the five columns the game asks for, in the engine's own column count —
-    // the moment there are six, invariant C6 (statColumns) needs an escape
-    // hatch in style.css to hand the extra one a width
+  it('keeps the host schema at name, status, score and ping', () => {
+    // the `rank` column is gone with the room table, and the keys close up
+    // behind it: a gap in the indexes is a column the engine writes nowhere.
+    // The other four stay because the ENGINE writes them (RoundManager,
+    // RTTManager) even while the client draws a global list
     const { stat } = hostPlugin.gameConfig;
     const byKey = Object.entries(stat)
       .sort(([, a], [, b]) => a.key - b.key)
       .map(([name]) => name);
 
-    expect(byKey).toEqual(['name', 'status', 'rank', 'score', 'latency']);
-    expect(clientConfig.modules.stat.params.columns).toEqual([
-      'snake',
-      'status',
-      'rank',
-      'score',
-      'ping',
-    ]);
-  });
-
-  // `noSpectators` removed the second body: a stat body keyed by a team the
-  // config no longer declares would be a section the table can never fill
-  it('gives the table one body and one head, both the playing team', () => {
-    const { params } = clientConfig.modules.stat;
-    const teamId = hostPlugin.gameConfig.teams.players;
-
-    expect(Object.keys(params.bodies)).toEqual([String(teamId)]);
-    expect(Object.keys(params.heads)).toEqual([String(teamId)]);
-    expect(params.bodies[teamId]).toBe('players');
+    expect(byKey).toEqual(['name', 'status', 'score', 'latency']);
+    expect(Object.values(stat).map(({ key }) => key)).toEqual([0, 1, 2, 3]);
+    expect(stat.rank).toBeUndefined();
   });
 
   // nothing is voted on here any more: one team, one endless map, and a join
@@ -224,16 +212,6 @@ describe('client config', () => {
     // is recursive, so the game has to overwrite the key — dropping it would
     // simply leave the engine's own value in place
     expect(clientConfig.modules.controls.modes[77]).toBe('');
-  });
-
-  it('ranks the table by the score column the bridge writes', () => {
-    const [[primary, descending], [secondary]] =
-      clientConfig.modules.stat.params.sortList.players;
-
-    expect(primary).toBe(hostPlugin.gameConfig.stat.score.key);
-    expect(descending).toBe(true);
-    // ties break on rank — the only other number the table shows
-    expect(secondary).toBe(hostPlugin.gameConfig.stat.rank.key);
   });
 
   it('leaves the two columns the engine fills to the engine', () => {

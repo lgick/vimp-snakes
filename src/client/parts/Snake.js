@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import { SNAKE_COLORS } from '../../data/palette.js';
 import { SNAKE } from '../../data/theme.js';
 
@@ -49,6 +49,16 @@ function graceAlpha(now) {
   const phase = (Math.sin((now / 1000) * GRACE_BLINK_HZ * Math.PI * 2) + 1) / 2;
 
   return GRACE_ALPHA_MIN + (GRACE_ALPHA_MAX - GRACE_ALPHA_MIN) * phase;
+}
+
+/// Lightens a hex colour towards white by `amount` (0..1).
+function lighten(color, amount) {
+  const mix = channel => Math.round(channel + (0xff - channel) * amount);
+  const r = mix((color >> 16) & 0xff);
+  const g = mix((color >> 8) & 0xff);
+  const b = mix(color & 0xff);
+
+  return (r << 16) | (g << 8) | b;
 }
 
 /// Darkens a hex colour towards black by `amount` (0..1).
@@ -102,7 +112,7 @@ function smooth(points, steps) {
 }
 
 export default class Snake extends Container {
-  constructor(data, _assets, dependencies = {}, context = {}) {
+  constructor(data, assets = {}, dependencies = {}, context = {}) {
     super();
 
     // Paint order is `zIndex` and nothing else: the engine marks the stage
@@ -119,10 +129,23 @@ export default class Snake extends Container {
     this._localPlayer = dependencies.localPlayer;
     this._id = context.id ?? null;
 
+    // 'what place does this snake hold in the game's global top?' — the
+    // SERVICE is kept, never the answer. Same reason as `localPlayer` above:
+    // parts are built from the first shot, before the host has sent a single
+    // place, so a badge decided in the constructor would be missing for
+    // exactly the players who have one. See docs/ai/04-client-plugin.md.
+    this._accolades = dependencies.accolades;
+
     this._body = new Graphics();
     this._head = new Graphics();
 
     this.addChild(this._body, this._head);
+
+    // the crown of the monthly top ten, baked white by src/client/bakers/
+    // crown.js and tinted here. Built once and hidden until the place says
+    // otherwise; an engine that baked nothing (or a test) leaves it null and
+    // the snake simply wears no crown
+    this._crown = assets?.crown ? this._buildCrown(assets.crown) : null;
 
     // the graphics hold world coordinates directly, so the container itself
     // never moves — the head position has to be remembered rather than read
@@ -155,8 +178,13 @@ export default class Snake extends Container {
     // a rendering bug rather than as a rule of the game
     this.alpha = inGrace ? graceAlpha(performance.now()) : 1;
 
-    this._drawBody(points, radius, color, boosting);
+    // asked at draw time, every frame: places arrive on their own port long
+    // after the first row and change while the match runs
+    const { daily, monthly } = this._accolades?.placeOf(this._id) ?? {};
+
+    this._drawBody(points, radius, color, boosting, daily !== null && daily !== undefined);
     this._drawHead(points[0], angle, radius, color);
+    this._drawCrown(points[0], angle, radius, monthly !== null && monthly !== undefined);
 
     // This snake just ate. The cue is played for the local player only —
     // everyone else's pickups are drawn but silent. Rows only arrive when the
@@ -169,7 +197,7 @@ export default class Snake extends Container {
     this._headAt = points[0];
   }
 
-  _drawBody(points, radius, color, boosting) {
+  _drawBody(points, radius, color, boosting, crowned) {
     const curve = smooth(points, SNAKE.smoothing);
     const graphics = this._body;
 
@@ -208,6 +236,58 @@ export default class Snake extends Container {
       cap: 'round',
       join: 'round',
     });
+
+    if (crowned) {
+      this._drawDiamonds(curve, radius, color);
+    }
+  }
+
+  // The badge of the DAILY top ten: diamonds down the body, drawn over the two
+  // strokes above. Spaced by walking the smoothed curve rather than by taking
+  // every n-th vertex — the vertices bunch up where the snake turns, and a
+  // pattern that bunched with them would read as a rendering fault.
+  _drawDiamonds(curve, radius, color) {
+    const { diamondEvery, diamondLong, diamondWide, diamondLighten } =
+      SNAKE.accolade;
+    const graphics = this._body;
+    const spacing = radius * diamondEvery;
+    const long = radius * diamondLong;
+    const wide = radius * diamondWide;
+
+    // half a step in, so a short snake still gets one and the head keeps its
+    // own shape clean
+    let walked = spacing * 0.5;
+
+    for (let i = 1; i < curve.length; i += 1) {
+      const [x0, y0] = curve[i - 1];
+      const [x1, y1] = curve[i];
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const len = Math.hypot(dx, dy);
+
+      if (len === 0) {
+        continue;
+      }
+
+      while (walked <= len) {
+        const t = walked / len;
+        const cx = x0 + dx * t;
+        const cy = y0 + dy * t;
+        // unit tangent along the body, and its normal across it
+        const tx = dx / len;
+        const ty = dy / len;
+
+        graphics.moveTo(cx + tx * long, cy + ty * long);
+        graphics.lineTo(cx - ty * wide, cy + tx * wide);
+        graphics.lineTo(cx - tx * long, cy - ty * long);
+        graphics.lineTo(cx + ty * wide, cy - tx * wide);
+        graphics.fill(lighten(color, diamondLighten));
+
+        walked += spacing;
+      }
+
+      walked -= len;
+    }
   }
 
   _drawHead([x, y], angle, radius, color) {
@@ -236,6 +316,45 @@ export default class Snake extends Container {
       graphics.circle(ex + nx * eye * 0.35, ey + ny * eye * 0.35, eye * 0.5);
       graphics.fill(SNAKE.pupil);
     }
+  }
+
+  /// The crown sprite, hidden until a place says otherwise. Anchored at the
+  /// bottom middle so the rotation turns it around the point it sits on.
+  _buildCrown(texture) {
+    const sprite = new Sprite(texture);
+
+    sprite.anchor.set(0.5, 1);
+    sprite.tint = SNAKE.accolade.crownTint;
+    sprite.visible = false;
+
+    this.addChild(sprite);
+
+    return sprite;
+  }
+
+  // The badge of the MONTHLY top ten: a crown over the head, leaning the way
+  // the snake looks. The sprite is baked pointing up, so the facing angle is
+  // turned by a quarter to get from "along +x" to "along -y".
+  _drawCrown([x, y], angle, radius, crowned) {
+    if (!this._crown) {
+      return;
+    }
+
+    this._crown.visible = crowned;
+
+    if (!crowned) {
+      return;
+    }
+
+    const { crownScale, crownLift } = SNAKE.accolade;
+    const size = radius * crownScale;
+
+    this._crown.scale.set(size / this._crown.texture.width);
+    this._crown.rotation = angle + Math.PI / 2;
+    // pushed out along the facing, so it rides the forehead rather than the
+    // middle of the head
+    this._crown.x = x + Math.cos(angle) * radius * crownLift * 0.35;
+    this._crown.y = y + Math.sin(angle) * radius * crownLift * 0.35;
   }
 
   /// True while this part draws the snake of the player sitting at this tab.

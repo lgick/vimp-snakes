@@ -343,7 +343,16 @@ describe('meta chat commands', () => {
   const metaContext = (isDevMode = false) => ({
     chat: { pushSystem: vi.fn(), pushSystemByUser: vi.fn() },
     roundManager: { changeName: vi.fn(), initiateNewRound: vi.fn() },
-    playerDataSync: { getRank: vi.fn(() => 7) },
+    playerDataSync: {
+      // snakes-v3: '/rank' answers with the place in the DAILY rating, and
+      // re-fetches it first — the place is moved by other servers' games
+      refreshPlacement: vi.fn(async () => ({
+        value: 120,
+        placement: 3,
+        total: 48,
+      })),
+      getRating: vi.fn(() => ({ value: 120, placement: 3, total: 48 })),
+    },
     isDevMode,
   });
 
@@ -370,12 +379,68 @@ describe('meta chat commands', () => {
     );
   });
 
-  it('/rank answers the player alone, with the engine code', () => {
+  it('/rank answers the player alone, with today\'s place', async () => {
     const ctx = metaContext();
 
-    rankCommand.handler(ctx, '1', []);
+    await rankCommand.handler(ctx, '1', []);
 
-    expect(ctx.playerDataSync.getRank).toHaveBeenCalledWith('1');
-    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [7]);
+    expect(ctx.playerDataSync.refreshPlacement).toHaveBeenCalledWith('1', 'day');
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
+      3,
+      48,
+      120,
+    ]);
+  });
+
+  // an unranked player has no place, and the message says so with the same
+  // dash the leaderboard puts in that column
+  it('/rank answers an unranked player with a dash', async () => {
+    const ctx = metaContext();
+
+    ctx.playerDataSync.refreshPlacement = vi.fn(async () => ({
+      value: 0,
+      placement: null,
+      total: 48,
+    }));
+
+    await rankCommand.handler(ctx, '1', []);
+
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
+      '—',
+      48,
+      0,
+    ]);
+  });
+
+  // the command must not take the room down with it: CommandProcessor neither
+  // awaits the handler nor catches it, so a rejection here is unhandled
+  it('/rank falls back to the last known values on a failure', async () => {
+    const ctx = metaContext();
+
+    ctx.playerDataSync.refreshPlacement = vi.fn(async () => {
+      throw new Error('master unreachable');
+    });
+
+    await expect(rankCommand.handler(ctx, '1', [])).resolves.toBeUndefined();
+
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
+      3,
+      48,
+      120,
+    ]);
+  });
+
+  it('/rank survives an engine that has neither call', async () => {
+    const ctx = metaContext();
+
+    ctx.playerDataSync = {};
+
+    await expect(rankCommand.handler(ctx, '1', [])).resolves.toBeUndefined();
+
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
+      '—',
+      0,
+      0,
+    ]);
   });
 });

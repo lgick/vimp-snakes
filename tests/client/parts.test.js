@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Texture } from 'pixi.js';
 import parts from '../../src/client/parts/index.js';
 import crystalGem from '../../src/client/bakers/crystalGem.js';
+import crown from '../../src/client/bakers/crown.js';
 import mapData from '../../src/data/maps/arena.js';
 import { CRYSTAL_TIERS } from '../../src/data/palette.js';
 
@@ -29,6 +30,15 @@ function snakeRow({ points = [[100, 200]], angle = 0, radius = 14, crystals = 0,
   row.push(angle, radius, crystals, color, boost);
 
   return row;
+}
+
+/// The engine's `accolades` service, reduced to the one method a part uses.
+/// It always answers with an object: a bot, a guest or anybody outside the top
+/// gets two nulls, and that is the normal path, not a failure.
+function accoladesFor(places = {}) {
+  return {
+    placeOf: () => ({ daily: null, monthly: null, ...places }),
+  };
 }
 
 /// The engine's `localPlayer` service, reduced to the one method a part uses.
@@ -202,6 +212,130 @@ describe('Snake', () => {
 
     error.mockRestore();
   });
+
+  // ***** the top-ten badges *****
+
+  it('wears nothing at all without a place in either top', () => {
+    const snake = new Snake(
+      snakeRow(),
+      { crown: Texture.EMPTY },
+      { accolades: accoladesFor() },
+      { id: '01' },
+    );
+    const fill = vi.spyOn(snake._body, 'fill');
+
+    snake.update(snakeRow());
+
+    // the body is two strokes and no fill; the crown exists but is hidden
+    expect(fill).not.toHaveBeenCalled();
+    expect(snake._crown.visible).toBe(false);
+
+    snake.destroy();
+  });
+
+  it('draws the daily diamonds down the body', () => {
+    const points = Array.from({ length: SPINE_POINTS }, (_, i) => [
+      1000 - i * 60,
+      1000,
+    ]);
+    const plain = new Snake(snakeRow({ points }), {}, {}, { id: '01' });
+    const plainFill = vi.spyOn(plain._body, 'fill');
+
+    plain.update(snakeRow({ points }));
+    expect(plainFill).not.toHaveBeenCalled();
+
+    const top = new Snake(
+      snakeRow({ points }),
+      {},
+      { accolades: accoladesFor({ daily: 4 }) },
+      { id: '01' },
+    );
+    const topFill = vi.spyOn(top._body, 'fill');
+
+    top.update(snakeRow({ points }));
+
+    // one fill per diamond, spaced along the curve — a long snake wears
+    // several of them
+    expect(topFill.mock.calls.length).toBeGreaterThan(1);
+
+    plain.destroy();
+    top.destroy();
+  });
+
+  it('shows the monthly crown over the head and turns it with the snake', () => {
+    const snake = new Snake(
+      snakeRow({ points: [[10, 20]], angle: 0, radius: 20 }),
+      { crown: Texture.EMPTY },
+      { accolades: accoladesFor({ monthly: 1 }) },
+      { id: '01' },
+    );
+
+    expect(snake._crown.visible).toBe(true);
+    // baked pointing up, worn along the facing
+    expect(snake._crown.rotation).toBeCloseTo(Math.PI / 2);
+
+    snake.update(snakeRow({ points: [[10, 20]], angle: Math.PI, radius: 20 }));
+
+    expect(snake._crown.rotation).toBeCloseTo(Math.PI + Math.PI / 2);
+
+    snake.destroy();
+  });
+
+  it('wears both badges at once', () => {
+    const points = [[100, 200], [40, 200], [-20, 200]];
+    const snake = new Snake(
+      snakeRow({ points }),
+      { crown: Texture.EMPTY },
+      { accolades: accoladesFor({ daily: 2, monthly: 9 }) },
+      { id: '01' },
+    );
+    const fill = vi.spyOn(snake._body, 'fill');
+
+    snake.update(snakeRow({ points }));
+
+    expect(fill).toHaveBeenCalled();
+    expect(snake._crown.visible).toBe(true);
+
+    snake.destroy();
+  });
+
+  it('asks for the place at draw time, not at construction', () => {
+    // the places arrive on their own port long after the first shot the part
+    // is built from, and they change while the match runs: a badge decided in
+    // the constructor would be missing for exactly the players who have one
+    let places = { daily: null, monthly: null };
+    const snake = new Snake(
+      snakeRow(),
+      { crown: Texture.EMPTY },
+      { accolades: { placeOf: () => places } },
+      { id: '01' },
+    );
+
+    expect(snake._crown.visible).toBe(false);
+
+    places = { daily: 1, monthly: 1 };
+    snake.update(snakeRow());
+
+    expect(snake._crown.visible).toBe(true);
+
+    // and it is taken away again the moment the place is lost
+    places = { daily: null, monthly: null };
+    snake.update(snakeRow());
+
+    expect(snake._crown.visible).toBe(false);
+
+    snake.destroy();
+  });
+
+  it('survives an engine with no accolades service and no baked crown', () => {
+    const snake = new Snake(snakeRow(), {}, {}, { id: '01' });
+
+    expect(() => snake.update(snakeRow())).not.toThrow();
+    expect(snake._crown).toBe(null);
+    expect(snake.children.length).toBe(2);
+
+    snake.destroy();
+  });
 });
 
 describe('Arena', () => {
@@ -274,5 +408,19 @@ describe('crystalGem baker', () => {
 
     expect(renderer.generateTexture).toHaveBeenCalled();
     expect(texture).toBe(Texture.EMPTY);
+  });
+});
+
+describe('crown baker', () => {
+  it('bakes a square of the size it is given', () => {
+    const renderer = { generateTexture: vi.fn(() => Texture.EMPTY) };
+    const texture = crown({ size: 64, points: 3 }, renderer);
+
+    expect(texture).toBe(Texture.EMPTY);
+
+    const [{ frame }] = renderer.generateTexture.mock.calls[0];
+
+    expect(frame.width).toBe(64);
+    expect(frame.height).toBe(64);
   });
 });

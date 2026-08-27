@@ -18,7 +18,7 @@ framework, the generic Rust engine crate — see the engine's own docs:
 | --- | --- |
 | [getting-started.md](getting-started.md) | Local setup: install, Rust toolchain, building the WASM core, `npm run dev`, linking against a local engine checkout, tests, headless scenarios |
 | [architecture.md](architecture.md) | This plugin's layout, how it plugs into the engine, the core's boundary, the four decisions the code depends on |
-| [gameplay.md](gameplay.md) | Gameplay: the arena, controls, crystals, the boost, crashes and kills, score and rank, bots, chat commands, what this game does NOT have |
+| [gameplay.md](gameplay.md) | Gameplay: the arena, controls, crystals, the boost, crashes and kills, the score and the three ratings, bots, chat commands, what this game does NOT have |
 | [core.md](core.md) | Rust game core (`vimp-snakes-core`): layout, ABI (commands/events/frames), the motion model, collisions, crystals, bots, prediction, tests |
 | [configuration.md](configuration.md) | This plugin's own configuration: `game.js`/`client.js` halves, auth form, sounds, snapshot schema, game data (model, palette, theme, map) |
 | [extending.md](extending.md) | Adding content: a snake class, a crystal tier, a colour, a sound, a client part, a chat command |

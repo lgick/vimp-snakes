@@ -192,16 +192,21 @@ export default {
   // '' into it when a player is admitted — so the column stays even though
   // this game never reports a death.
   //
-  // The two playing columns — `rank` and `score` — are written by THIS GAME,
-  // not by the engine (see the note at the top of the file), and both carry
-  // bodyMethod '=' (replace) rather than '+' (accumulate):
-  // `src/host/StatBridge.js` keeps the running totals itself and reports the
-  // result, so a re-sent value is harmless and a dropped one self-heals on the
-  // next event. `rank` has no `headMethod`: a sum of ranks in the header means
-  // nothing, so the aggregate is left empty as it is for `status`/`latency`.
+  // The one playing column — `score` — is written by THIS GAME, not by the
+  // engine (see the note at the top of the file), and carries bodyMethod '='
+  // (replace) rather than '+' (accumulate): `src/host/StatBridge.js` keeps the
+  // running total itself and reports the result, so a re-sent value is
+  // harmless and a dropped one self-heals on the next event.
   //
-  // `deaths`, `eaten` and `kills` are gone on purpose: the engine never fills
-  // `deaths` here, and the other two are inputs to the score rather than
+  // The `rank` column is gone: by Tab the client no longer shows this room at
+  // all but the game's global daily top ten, which it fetches for itself
+  // (`modules.stat.params.mode: 'leaderboard'` in src/config/client.js). The
+  // schema stays anyway — the engine keeps writing `name`, `status` and
+  // `latency` into its own table (RoundManager, RTTManager), and dropping the
+  // columns would break those paths.
+  //
+  // `deaths`, `eaten` and `kills` are gone on purpose too: the engine never
+  // fills `deaths` here, and the other two are inputs to the score rather than
   // numbers a player reads — StatBridge still counts them internally.
   stat: {
     name: {
@@ -216,20 +221,15 @@ export default {
       bodyValue: '',
       headValue: '',
     },
-    rank: {
-      key: 2,
-      bodyMethod: '=',
-      bodyValue: 0,
-    },
     score: {
-      key: 3,
+      key: 2,
       bodyMethod: '=',
       bodyValue: 0,
       headMethod: '+',
       headValue: 0,
     },
     latency: {
-      key: 4,
+      key: 3,
       bodyMethod: '=',
     },
   },

@@ -34,6 +34,59 @@
   display: none !important;
 }
 
+/* ***** the leaderboard behind Tab ***** */
+
+/*
+ * `modules.stat.params.mode` is 'leaderboard' (src/config/client.js): Tab
+ * shows the game's global daily top ten instead of the room's table, and the
+ * engine draws only the bare skeleton for it — one `.stat-leaderboard` box of
+ * `.stat-row` grids of three cells (place, nick, score). Its own table CSS is
+ * cut for five columns and is not used here at all, which is why invariant C6
+ * asks the plugin for these rules.
+ */
+#stat .stat-leaderboard {
+  padding: 12px 0;
+  font: 400 16px/1.6 system-ui, sans-serif;
+  color: #e6ecf5;
+}
+
+#stat .stat-leaderboard .stat-row {
+  /* place · nick · score: the two numbers are read down a column, so both are
+     right-aligned and the nick takes what is left */
+  grid-template-columns: 3.5em 1fr 5.5em;
+  gap: 0 12px;
+  padding: 4px 16px;
+  border-radius: 6px;
+}
+
+/* digits of the same width, or the numbers jitter as the list refreshes */
+#stat .stat-leaderboard .stat-row span:first-child,
+#stat .stat-leaderboard .stat-row span:last-child {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+#stat .stat-leaderboard .stat-row span:first-child {
+  opacity: 0.6;
+}
+
+#stat .stat-leaderboard .stat-row span:last-child {
+  font-weight: 700;
+  color: #ffd76b;
+}
+
+#stat .stat-leaderboard .stat-row span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the player's own row — it may be the tenth line replaced by their place */
+#stat .stat-leaderboard .is-self {
+  background: rgb(58 183 255 / 18%);
+  color: #7ef9ff;
+}
+
 /* ***** the result screen ***** */
 
 #snakes-gameover {

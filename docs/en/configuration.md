@@ -54,27 +54,37 @@ simulation.
 
 ### Stats (`stat`)
 
-Five columns, matched positionally by `client.js`: `name` (0), `status` (1),
-`rank` (2), `score` (3), `latency` (4). `name` and `latency` are the engine's
-and must keep their names; `status` is the engine's too (`RoundManager` writes
-`''` into it when a player is admitted).
+Four columns, matched positionally by `client.js`: `name` (0), `status` (1),
+`score` (2), `latency` (3). `name` and `latency` are the engine's and must
+keep their names; `status` is the engine's too (`RoundManager` writes `''`
+into it when a player is admitted).
 
-The two playing columns — `rank` and `score` — are written by **this game**
-(`src/host/StatBridge.js`), not by the engine, and both carry
-`bodyMethod: '='` (replace) rather than `'+'` (accumulate): the bridge keeps
-the running totals itself, so a re-sent value is harmless and a dropped one
-self-heals on the next event. `rank` has no `headMethod` — a sum of ranks
-means nothing. `deaths`, `eaten` and `kills` are absent on purpose.
+The one playing column — `score` — is written by **this game**
+(`src/host/StatBridge.js`), not by the engine, and carries `bodyMethod: '='`
+(replace) rather than `'+'` (accumulate): the bridge keeps the running total
+itself, so a re-sent value is harmless and a dropped one self-heals on the
+next event.
+
+The `rank` column is **gone**: `Tab` no longer shows this room at all but the
+game's global daily top ten, which the client fetches for itself (see
+`modules.stat` below). The rest of the schema stays anyway — the engine keeps
+writing `name`, `status` and `latency` into its own table, and dropping the
+columns would break those paths. `deaths`, `eaten` and `kills` are absent on
+purpose.
 
 ### Player rank/state (`playerState`)
 
 The engine treats `state` as an opaque JSON blob; this game stores
-`{ best, eaten }` — the best score reached and a lifetime crystal count —
-written by `StatBridge._recordBest` on every death.
+`{ best, eaten }` — the best score of a SINGLE life ever played and a lifetime
+crystal count — written by `StatBridge._recordBest` on every death.
 
-`rank` is a plain number, and in this game the plugin feeds it: one point per
-kill plus one per 25 crystals eaten, flushed with `vimp.flushPlayerData()`
-(see [gameplay.md](gameplay.md#score-and-rank-tab)). Sync mechanics are the
+The ratings themselves are not stored here. One life is one game: the bridge
+reports its result with `vimp.addPlayerPoints(gameId, score)` +
+`vimp.finishPlayerGame(gameId)` and then *asks* for a write with
+`vimp.flushPlayerData({ urgent: true })` — the daily best, the monthly sum and
+the all-time total are the engine's split of that one number, and how often it
+reaches the database is the engine's decision too (see
+[gameplay.md](gameplay.md#the-result-of-a-game)). Sync mechanics are the
 engine's —
 [auth.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/auth.md#rank-and-state-loading-and-sync-host).
 
@@ -116,14 +126,20 @@ is why disabling an engine key means overwriting it, not dropping it).
   is a black canvas.
 - **`entitiesOnCanvas`** — part class → canvas; this is the **only**
   registration with the factory. All three parts live on `vimp`.
-- **`bakedAssets`** — one entry: the `crystalGem` baker draws a **white** gem
-  (radius 32, 6 facets) once per canvas at startup, and every tier and colour
-  is a `tint` + `scale` of that one texture, so sixty crystals stay one batch.
-  The snake has no baked asset: its body is a stroked path whose width follows
-  the crystal count every frame.
-- **`componentDependencies`** — engine services only: `soundManager` and
-  `localPlayer` for `Snake` (a snake plays the pickup cue only for the player
-  of *this* tab — thirty snakes eating at once is a wall of noise).
+- **`bakedAssets`** — two entries, both baked **white** once per canvas at
+  startup and then tinted and scaled by the part: the `crystalGem` baker draws
+  a gem (radius 32, 6 facets), so every tier and colour is a `tint` + `scale`
+  of that one texture and sixty crystals stay one batch; the `crown` baker
+  draws the badge of the monthly top ten (size 64, 3 points). The snake's
+  BODY has no baked asset: it is a stroked path whose width follows the
+  crystal count every frame.
+- **`componentDependencies`** — engine services only, and all three go to
+  `Snake`: `soundManager` (a snake plays the pickup cue only for the player of
+  *this* tab — thirty snakes eating at once is a wall of noise), `localPlayer`
+  ("is this snake mine?") and `accolades` ("what place does this snake hold in
+  the game's global top?" — the part asks at draw time and draws the diamonds
+  of the daily top ten or the crown of the monthly one). `accolades` is the
+  fifth service of the engine's pool and needs `ENGINE_API_VERSION` 4.
 
 ### Canvas and camera
 
@@ -157,9 +173,16 @@ you approach, not a frame you always see), `dynamicCamera: true`,
   order of the cells**. Only `score` is visible; the rest are declared because
   the panel contract requires the client to name every host field, and hidden
   by `style.css`.
-- **`stat`** — five columns (`snake`, `status`, `rank`, `score`, `ping`), one
-  body and one head (both the playing team), sorted by column 3 descending,
-  ties broken by column 2.
+- **`stat`** — `mode: 'leaderboard'`: `Tab` shows the game's global top
+  instead of the room's table, so the client fetches the list from the master
+  itself and the host sends no rows for it. `period: 'day'` (the best result
+  of a single game over the UTC day), `limit: 10`, `refreshMs: 15000`, and
+  three columns — `#`, `snake`, `score`. The order comes from auth, so
+  `heads`, `bodies` and `sortList` are all gone: there is nothing to sort and
+  no team in a global list. A player outside the top replaces its tenth row.
+  The mode needs `ENGINE_API_VERSION` 4, and the engine draws only the bare
+  `.stat-leaderboard` skeleton for it — the styling is this game's
+  (`src/client/style.css`).
 - **No `vote` module at all** — see [gameplay.md](gameplay.md#what-this-game-does-not-have).
 - **`gameInform.list`** — `'{0} WINS!'`, `'SLITHER!'`, `'GAME OVER!'`; the
   indexes are fixed by the engine (winnerTeam, roundStart, gameOver).

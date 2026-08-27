@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import StatBridge from '../../src/host/StatBridge.js';
 
-// The bridge is the only writer of the scoring columns in this game: the
+// The bridge is the only writer of the scoring column in this game: the
 // engine fills score and deaths off its kill reports, and this core never
 // reports a kill (src/config/game.js). The score is accumulated here and
-// nowhere else; `eaten` and `kills` stay internal counters feeding it, and the
-// only columns published are `score` and the engine's `rank`.
+// nowhere else; `eaten` and `kills` stay internal counters feeding it, and
+// `score` is the only column published — the rank column is gone, and the
+// ratings are fed by the RESULT OF A GAME (one life) instead.
 const TEAM_ID = 1;
 
 /// The engine's participant map, reduced to `get`. The keys are STRINGS, as
@@ -58,13 +59,58 @@ describe('StatBridge', () => {
     expect(statOf(stat, '3')).toEqual({ score: 5 });
   });
 
-  it('keeps the counters across a death and a respawn', () => {
+  // one life is one game: the respawn is what starts the next one, and not
+  // the death — the result overlay reads the score off the panel AFTER the
+  // crash, and a zero there would show the player nothing of their game
+  it('starts every counter over on the respawn, not on the death', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 12, gained: 12 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1, killer: null }, {});
-    bridge.onCoreEvent({ type: 'respawn', id: 3 }, {});
+    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1, killer: null }, { panel });
+
+    expect(statOf(stat, '3')).toEqual({ score: 12 });
+    expect(panel.updateUser).toHaveBeenLastCalledWith('3', 'score', 12, 'set');
+
+    bridge.onCoreEvent({ type: 'respawn', id: 3 }, { panel });
+
+    expect(statOf(stat, '3')).toEqual({ score: 0 });
+    expect(panel.updateUser).toHaveBeenLastCalledWith('3', 'score', 0, 'set');
+
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 8, gained: 5 }, {});
 
+    expect(statOf(stat, '3')).toEqual({ score: 5 });
+  });
+
+  // the boost burns what the snake carries and sheds it on the map: without
+  // this the fastest way to a high score would be to boost forever
+  it('takes the burnt crystals off the score', () => {
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 20 }, {});
+    bridge.onCoreEvent({ type: 'burn', id: 3, burned: 3, total: 17 }, { panel });
+
     expect(statOf(stat, '3')).toEqual({ score: 17 });
+    expect(panel.updateUser).toHaveBeenLastCalledWith('3', 'score', 17, 'set');
+  });
+
+  it('never lets a burn push the score below zero', () => {
+    // a fresh snake spawns holding `world.startCrystals` it never ate, and
+    // can burn every one of them
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 2 }, {});
+    bridge.onCoreEvent({ type: 'burn', id: 3, burned: 9, total: 0 }, {});
+
+    expect(statOf(stat, '3')).toEqual({ score: 0 });
+  });
+
+  // `eaten` means "swallowed", not "still carried": the lifetime total in the
+  // saved profile is built on it, and the boost must not eat that history
+  it('leaves the eaten total alone when the boost burns', () => {
+    const vimp = {
+      getPlayerState: vi.fn(() => ({ best: 0, eaten: 0 })),
+      setPlayerState: vi.fn(),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 20 }, {});
+    bridge.onCoreEvent({ type: 'burn', id: 3, burned: 8, total: 12 }, {});
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 12, eaten: 20 });
   });
 
   it('pays the killer a flat bonus of 15 per kill', () => {
@@ -112,42 +158,113 @@ describe('StatBridge', () => {
     expect(statOf(stat, '3')).toEqual({ score: 9 });
   });
 
-  it('pays the killer one rank point through the engine facade', () => {
-    // this game never emits CoreEvent::Death, so RoundManager.reportKill —
-    // the engine's own rank writer — never runs; the bridge does it instead
-    const vimp = { addPlayerRank: vi.fn(), setPlayerState: vi.fn() };
+  // ***** THE RESULT OF ONE GAME *****
+  //
+  // The rank calls this bridge used to make are gone: a death reports the
+  // score of the life that just ended, and the engine decides how that lands
+  // in the daily best, the monthly sum and the all-time total.
+  it('reports the score of the life that just ended, once', () => {
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+    };
 
-    bridge.onCoreEvent(
-      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: 7 },
-      { vimp },
-    );
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 40 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
 
-    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(1);
-    expect(vimp.addPlayerRank).toHaveBeenCalledWith('7', 1);
+    expect(vimp.addPlayerPoints).toHaveBeenCalledTimes(1);
+    expect(vimp.addPlayerPoints).toHaveBeenCalledWith('3', 40);
+    expect(vimp.finishPlayerGame).toHaveBeenCalledTimes(1);
+    expect(vimp.finishPlayerGame).toHaveBeenCalledWith('3');
   });
 
-  it('leaves the rank alone on an edge crash and on a suicide', () => {
-    const vimp = { addPlayerRank: vi.fn(), setPlayerState: vi.fn() };
+  it('reports THIS life only, not the visit', () => {
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+    };
 
-    bridge.onCoreEvent(
-      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: null },
-      { vimp },
-    );
-    bridge.onCoreEvent(
-      { type: 'death', id: 3, crystals: 9, crashes: 2, killer: 3 },
-      { vimp },
-    );
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 40 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+    bridge.onCoreEvent({ type: 'respawn', id: 3 }, { vimp });
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 7 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.addPlayerPoints.mock.calls).toEqual([
+      ['3', 40],
+      ['3', 7],
+    ]);
+    expect(vimp.finishPlayerGame).toHaveBeenCalledTimes(2);
+  });
+
+  it('pushes the result to auth at once, not on the next interval', () => {
+    // a new daily best has to be in the database by the time the player
+    // presses Tab
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+    };
+
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: true });
+  });
+
+  it('pays the killer BEFORE the victim\'s counters are touched', () => {
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 7, gained: 5 }, { vimp });
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 9 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp });
+
+    // the killer's bonus is banked in THEIR game and reaches the ratings with
+    // their own death, not with the victim's
+    expect(statOf(stat, '7')).toEqual({ score: 20 });
+    expect(vimp.addPlayerPoints).toHaveBeenCalledTimes(1);
+    expect(vimp.addPlayerPoints).toHaveBeenCalledWith('3', 9);
+  });
+
+  it('never touches the rank the engine used to keep', () => {
+    const vimp = {
+      addPlayerRank: vi.fn(),
+      getPlayerRank: vi.fn(() => 4),
+      isPlayerRankLoaded: vi.fn(() => true),
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 50 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp });
+    bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp });
 
     expect(vimp.addPlayerRank).not.toHaveBeenCalled();
+    expect(vimp.getPlayerRank).not.toHaveBeenCalled();
+    expect(vimp.isPlayerRankLoaded).not.toHaveBeenCalled();
   });
 
-  it('survives an engine build without addPlayerRank', () => {
-    const vimp = { setPlayerState: vi.fn() };
-
-    expect(() => bridge.onCoreEvent(
-      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: 7 },
-      { vimp },
-    )).not.toThrow();
+  // an engine older than this game has none of the four calls above, and a
+  // test stub has whatever it was given: every one of them is optional
+  it('survives an engine build with none of the new calls', () => {
+    expect(() => {
+      bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 9 }, { vimp: {}, panel });
+      bridge.onCoreEvent({ type: 'burn', id: 3, burned: 2 }, { vimp: {}, panel });
+      bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp: {}, panel });
+      bridge.onCoreEvent({ type: 'respawn', id: 3 }, { vimp: {}, panel });
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
+    }).not.toThrow();
 
     expect(statOf(stat, '7')).toEqual({ score: 15 });
   });
@@ -157,44 +274,6 @@ describe('StatBridge', () => {
 
     expect(panel.updateUser).toHaveBeenCalledWith('3', 'score', 4, 'set');
     expect(panel.updateUser).toHaveBeenCalledTimes(1);
-  });
-
-  it('publishes the rank the engine keeps, next to the score', () => {
-    // the bridge counts no rank of its own: `addPlayerRank` moves it and
-    // `getPlayerRank` reads it back at publish time
-    const vimp = {
-      getPlayerRank: vi.fn(() => 4),
-      isPlayerRankLoaded: vi.fn(() => true),
-    };
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
-
-    expect(vimp.getPlayerRank).toHaveBeenCalledWith('3');
-    expect(statOf(stat, '3')).toEqual({ score: 4, rank: 4 });
-  });
-
-  it('writes no rank at all until the engine says it has one', () => {
-    // `getPlayerRank` answers 0 both for an unknown id and for one still
-    // waiting on the master, and the column is bodyMethod '=' — publishing
-    // that zero would replace a rank of 120 with a flat zero
-    const vimp = {
-      getPlayerRank: vi.fn(() => 0),
-      isPlayerRankLoaded: vi.fn(() => false),
-    };
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
-
-    expect(statOf(stat, '3')).toEqual({ score: 4 });
-    expect(vimp.getPlayerRank).not.toHaveBeenCalled();
-  });
-
-  it('survives an engine build without the rank getters', () => {
-    expect(() => bridge.onCoreEvent(
-      { type: 'crystals', id: 3, total: 4, gained: 4 },
-      { vimp: {}, panel },
-    )).not.toThrow();
-
-    expect(statOf(stat, '3')).toEqual({ score: 4 });
   });
 
   it('starts a game id over when it changes hands', () => {
@@ -256,7 +335,9 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 4, crashes: 2 }, { vimp });
 
     expect(state.eaten).toBe(14);
-    expect(state.best).toBe(14);
+    // `best` is the top score of a single LIFE, so the second game's 4 does
+    // not add to the first game's 10 — it loses to it
+    expect(state.best).toBe(10);
   });
 
   it('ignores an id that is not a participant any more', () => {
@@ -275,199 +356,46 @@ describe('StatBridge', () => {
 
   // a population report is the only hook this bridge gets when a participant
   // APPEARS: until a row is written it shows the column's bodyValue, a flat
-  // zero, however high the rank the master returned
+  // zero
   describe('newcomers', () => {
     it('writes the row of a participant nobody has scored for yet', () => {
-      const vimp = {
-        getPlayerRank: vi.fn(() => 120),
-        isPlayerRankLoaded: vi.fn(() => true),
-      };
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
 
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
-
-      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 120 });
-      expect(statOf(stat, '7')).toEqual({ score: 0, rank: 120 });
+      expect(statOf(stat, '3')).toEqual({ score: 0 });
+      expect(statOf(stat, '7')).toEqual({ score: 0 });
     });
 
     it('writes it once and leaves the row to the events after that', () => {
-      const vimp = {
-        getPlayerRank: vi.fn(() => 1),
-        isPlayerRankLoaded: vi.fn(() => true),
-      };
-
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
       stat.updateUser.mockClear();
 
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
 
       expect(stat.updateUser).not.toHaveBeenCalled();
     });
 
     it('publishes a row again when the id changes hands', () => {
-      const vimp = {
-        getPlayerRank: vi.fn(() => 5),
-        isPlayerRankLoaded: vi.fn(() => true),
-      };
-
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
 
       // the engine builds a fresh Participant per join: same id, new player
       participants.map.set('3', { gameId: '3', teamId: TEAM_ID });
       stat.updateUser.mockClear();
 
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
 
-      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 5 });
+      expect(statOf(stat, '3')).toEqual({ score: 0 });
       expect(statOf(stat, '7')).toBe(null);
     });
 
-    // `PlayerDataSync.load` puts an entry with rank 0 in place synchronously
-    // and goes off to await the real number, so 'population' can easily beat
-    // it. A row written then is missing the rank the event was supposed to
-    // show, and must not be counted as written
-    it('tries again on the next population report while the rank is missing', () => {
-      let loaded = false;
-      const vimp = {
-        getPlayerRank: vi.fn(() => 120),
-        isPlayerRankLoaded: vi.fn(() => loaded),
-      };
+    // a join or a leave is a natural moment to persist what the room has
+    // earned. It is a REQUEST: the interval and the per-server ceiling belong
+    // to the engine now (PlayerDataSync), not to the game
+    it('asks the engine to sync the profiles, without urging it', () => {
+      const vimp = { flushPlayerData: vi.fn() };
 
       bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
 
-      expect(statOf(stat, '3')).toEqual({ score: 0 });
-
-      loaded = true;
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
-
-      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 120 });
-
-      // and now the row IS written: the events own it from here
-      stat.updateUser.mockClear();
-      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
-
-      expect(stat.updateUser).not.toHaveBeenCalled();
+      expect(vimp.flushPlayerData).toHaveBeenCalledWith();
     });
-
-    it('survives an engine without the rank getters', () => {
-      expect(() =>
-        bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel }),
-      ).not.toThrow();
-
-      expect(statOf(stat, '3')).toEqual({ score: 0 });
-    });
-  });
-});
-
-// ***** THE RANK *****
-//
-// The engine's own rule is ±1 per kill, and a kill in this game is somebody
-// driving into YOU — a player cannot go and get one, so the rank never moved.
-// The crystals are what a player actually does here.
-describe('StatBridge rank', () => {
-  let stat;
-  let participants;
-  let bridge;
-
-  beforeEach(() => {
-    stat = { updateUser: vi.fn() };
-    participants = participantsFor(['3', '7']);
-    bridge = new StatBridge({ stat, participants });
-  });
-
-  const vimpStub = () => ({
-    addPlayerRank: vi.fn(),
-    getPlayerRank: vi.fn(() => 0),
-    isPlayerRankLoaded: vi.fn(() => true),
-    setPlayerState: vi.fn(),
-    flushPlayerData: vi.fn(),
-  });
-
-  it('pays one point per 25 crystals eaten, in whole points', () => {
-    const vimp = vimpStub();
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 24 }, { vimp });
-    expect(vimp.addPlayerRank).not.toHaveBeenCalled();
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 1 }, { vimp });
-    expect(vimp.addPlayerRank).toHaveBeenCalledWith('3', 1);
-
-    // the remainder is carried, not dropped: the next 25 pay the next point
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 24 }, { vimp });
-    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(1);
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 1 }, { vimp });
-    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(2);
-  });
-
-  it('pays a whole pile in one event its full worth', () => {
-    const vimp = vimpStub();
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 80 }, { vimp });
-
-    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(3);
-  });
-
-  // a crash empties what a snake CARRIES; `eaten` is a lifetime sum, so the
-  // rank already earned cannot be crashed away
-  it('does not take the rank back on a death', () => {
-    const vimp = vimpStub();
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 50 }, { vimp });
-    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
-
-    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(2);
-    expect(vimp.addPlayerRank).not.toHaveBeenCalledWith('3', -1);
-  });
-
-  it('still pays the killer a point on top', () => {
-    const vimp = vimpStub();
-
-    bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp });
-
-    expect(vimp.addPlayerRank).toHaveBeenCalledWith('7', 1);
-  });
-});
-
-// This game reaches neither of the engine's own sync boundaries (no round
-// end, no map change), so what it earns has to be pushed to auth explicitly.
-describe('StatBridge profile flush', () => {
-  let stat;
-  let participants;
-  let bridge;
-  let vimp;
-
-  beforeEach(() => {
-    stat = { updateUser: vi.fn() };
-    participants = participantsFor(['3']);
-    bridge = new StatBridge({ stat, participants });
-    vimp = {
-      addPlayerRank: vi.fn(),
-      getPlayerRank: vi.fn(() => 0),
-      isPlayerRankLoaded: vi.fn(() => true),
-      flushPlayerData: vi.fn(),
-    };
-  });
-
-  it('flushes once the rank has moved, then holds off for the interval', () => {
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp });
-    expect(vimp.flushPlayerData).toHaveBeenCalledTimes(1);
-
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp });
-    expect(vimp.flushPlayerData).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not flush when nothing has been earned', () => {
-    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 5 }, { vimp });
-    bridge.onCoreEvent({ type: 'population', count: 1 }, { vimp });
-
-    expect(vimp.flushPlayerData).not.toHaveBeenCalled();
-  });
-
-  it('survives an engine build without flushPlayerData', () => {
-    delete vimp.flushPlayerData;
-
-    expect(() =>
-      bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 25 }, { vimp }),
-    ).not.toThrow();
   });
 });

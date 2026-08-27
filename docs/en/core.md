@@ -111,9 +111,10 @@ The engine's standard dictionary is used only in part. `PanelSet` and
 
 | `data.type` | Payload | Consumed by |
 | --- | --- | --- |
-| `crystals` | `{ id, total, gained }` | `StatBridge` — score, `eaten`, rank per 25 |
-| `death` | `{ id, crystals, crashes, killer }` (`killer: null` for the edge) | `StatBridge` — the kill bonus, the killer's rank, the saved profile |
-| `respawn` | `{ id }` | nothing today; the counters deliberately survive a life |
+| `crystals` | `{ id, total, gained }` | `StatBridge` — the score and `eaten` |
+| `burn` | `{ id, burned, total }` — emitted on every step the boost sheds crystals, `burned` counting the spots dropped that step | `StatBridge` — takes them off the score, so boosting is not free |
+| `death` | `{ id, crystals, crashes, killer }` (`killer: null` for the edge) | `StatBridge` — the kill bonus, the end of the victim's game, the saved profile |
+| `respawn` | `{ id }` | `StatBridge` — a new life is a new game, so the counters start at zero |
 | `population` | `{ count }` | `ArenaScaler` — rebuilds the map; `StatBridge` — publishes newcomers' rows |
 
 Ids are **numbers** here and **strings** in the engine — everything crossing
@@ -257,7 +258,7 @@ the step.
 | --- | --- |
 | `motion.rs` | the turn clamp, both input sources, growth curves, `BodyPath` (advance/trim/resample/touches/`touches_ahead`/`reset_with_body`) |
 | `snake.rs` | key semantics (held vs one-shot), the pointer, the boost drain and its floor, respawn, the grace, the prediction block |
-| `game.rs` | the grace (frozen, harmless, unkillable), the fault rule, spawning whole, respawn placement (spread, map points first, no self-collision), the boost byte, row width vs the schema |
+| `game.rs` | the grace (frozen, harmless, unkillable), the fault rule, spawning whole, respawn placement (spread, map points first, no self-collision), the boost byte, the `burn` event reporting every crystal the boost sheds, row width vs the schema |
 | `crystals.rs` | spawn cadence and cap, pickup, death drops, the delta and the resync |
 | `arena.rs` | the disc derived from a grid, `contains` with a radius |
 | `client/predictor.rs` | **the parity suite** — the replica and the authoritative step must produce the same positions from the same inputs, including through the grace |

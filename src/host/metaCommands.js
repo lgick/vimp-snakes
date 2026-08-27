@@ -40,14 +40,39 @@ export const newRoundCommand = {
   },
 };
 
-/// '/rank' — the number the auth service keeps per (user, game); the engine
-/// loads it into PlayerDataSync at join.
+/// '/rank' — the player's place in the DAILY rating: the best result of a
+/// single game over the current UTC day, across every server this game runs
+/// on. Not a number of the room's own — the place moves with OTHER people's
+/// games, so it is re-fetched here rather than recomputed locally.
 export const rankCommand = {
   name: '/rank',
 
-  handler(ctx, gameId) {
+  // `CommandProcessor` calls a handler and neither awaits nor catches it
+  // (`handler(this._ctx, gameId, arr)`), so this one is fire-and-forget: the
+  // answer reaches the chat when the request returns. That is the right shape
+  // anyway — a stale place is exactly what the command is asked to avoid —
+  // but it also means nothing here may reject: an unhandled rejection in the
+  // host worker takes the room down with it, hence the try/catch. The
+  // throttling of the request itself lives in PlayerDataSync.
+  async handler(ctx, gameId) {
+    let rating = null;
+
+    try {
+      rating = await ctx.playerDataSync.refreshPlacement(gameId, 'day');
+    } catch {
+      // an engine without the call, or a request that blew up: answer with
+      // whatever the last refresh left behind
+      rating = ctx.playerDataSync.getRating?.(gameId, 'day') ?? null;
+    }
+
+    const { value = 0, placement = null, total = 0 } = rating ?? {};
+
+    // an unranked player has no place, and a dash says so — the same dash the
+    // leaderboard puts in that column (src/config/client.js)
     ctx.chat.pushSystemByUser(gameId, 'RANK', [
-      ctx.playerDataSync.getRank(gameId),
+      placement ?? '—',
+      total,
+      value,
     ]);
   },
 };

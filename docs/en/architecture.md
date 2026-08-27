@@ -19,7 +19,7 @@ src/
                (the map that grows with the crowd), ScriptedManager (bots),
                chat commands, g:* system messages
   client/    — ClientPlugin: parts/ (PixiJS entities), bakers/ (the crystal
-               texture), gameOver.js (the result overlay), game CSS
+               and crown textures), gameOver.js (the result overlay), game CSS
   config/    — game config halves (game.js, client.js, auth.js, sounds.js,
                snapshot.js)
   data/      — static data: maps/arena.js, models.js, palette.js, theme.js,
@@ -100,25 +100,43 @@ Rendering is built from engine MVC components + this plugin's PixiJS entities
 startup from `src/client/bakers/`.
 
 No part needs a game service: `componentDependencies` names only engine
-services (`soundManager`, `localPlayer`). Colours and the arena look are plain
-imports (`src/data/palette.js`, `src/data/theme.js`) because a free-form
-`gameConfig.parts.*` key reaches the client config but never a part — a part
-is constructed with `(data, assets, dependencies)`, and `dependencies` only
-ever holds engine services.
+services (`soundManager`, `localPlayer`, `accolades`). Colours and the arena
+look are plain imports (`src/data/palette.js`, `src/data/theme.js`) because a
+free-form `gameConfig.parts.*` key reaches the client config but never a part
+— a part is constructed with `(data, assets, dependencies)`, and
+`dependencies` only ever holds engine services.
 
 ## The four decisions the code depends on
 
-1. **The core owns life and death; the engine is never told.**
-   `CoreEvent::Death` is never emitted. A round ends only through a reported
-   kill, and there is no per-player respawn inside a round (the only spawn
-   primitive is private to `RoundManager._startRound`), so the core has to own
-   crash, drop and respawn outright. The engine therefore never writes
-   `score`/`deaths` either — `src/host/StatBridge.js` does, off `custom`
-   events, reached from `onCoreEvent` through a module-scope handle set in
-   `createModules` (that hook's context is only `{ vimp, panel }`). Two engine
-   flags in `src/config/game.js` make it official: `noSpectators` (one team,
-   the joiner goes straight into it) and `endlessRound` (the engine never
-   restarts the round or wipes the stat table by itself).
+1. **The core owns life and death; the engine is never told — so ONE LIFE IS
+   ONE GAME.** `CoreEvent::Death` is never emitted. A round ends only through
+   a reported kill, and there is no per-player respawn inside a round (the
+   only spawn primitive is private to `RoundManager._startRound`), so the core
+   has to own crash, drop and respawn outright. The engine therefore never
+   writes `score`/`deaths` either — `src/host/StatBridge.js` does, off
+   `custom` events, reached from `onCoreEvent` through a module-scope handle
+   set in `createModules` (that hook's context is only `{ vimp, panel }`). Two
+   engine flags in `src/config/game.js` make it official: `noSpectators` (one
+   team, the joiner goes straight into it) and `endlessRound` (the engine
+   never restarts the round or wipes the stat table by itself).
+
+   The consequence is the scoring model. With no round to end and no death the
+   engine hears about, the only boundary this game has is the crash, so the
+   crash is what closes a game: the score of that life is reported with
+   `vimp.addPlayerPoints(gameId, score)` + `vimp.finishPlayerGame(gameId)`,
+   the counters are reset by the RESPAWN (not by the death — the result
+   overlay reads the score off the panel after the crash), and a `burn` event
+   from the core takes the boost's fuel back off the score.
+
+   **The game reports a result; the engine splits it.** The daily best, the
+   monthly sum and the all-time total are computed from that one number by the
+   engine and the auth service, and the game does no "delta against today's
+   value" arithmetic of its own. It does not decide *when* the number is
+   written either: `vimp.flushPlayerData()` is a request, and the interval,
+   the per-room queue and the backoff belong to `PlayerDataSync`. What comes
+   back the other way is a place — the `accolades` client service — and the
+   game's only say in it is how a place is drawn (a diamond pattern, a crown)
+   and what `Tab` shows (`mode: 'leaderboard'`).
 2. **Game ids are STRINGS.** The engine hands them out as
    `counter.toString(10)` and keys its participant Map by them, while the core
    writes them into `custom` events as numbers — everything crossing that seam

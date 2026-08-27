@@ -966,10 +966,26 @@ impl GameSim<SnakesGame> for SnakesSim {
 
             let outcome = snake.step(dt, model, &bits);
 
+            // taken before the loop consumes the vector
+            let burned = outcome.burned.len();
+
             for spot in outcome.burned {
                 let tier = roll_tier(ctx.rng, &world);
 
                 self.field.drop_at(spot, tier, ctx.rng, &world);
+            }
+
+            if burned > 0 {
+                Self::push_vitals(ctx.events, *id, snake, model);
+
+                ctx.events.push(CoreEvent::Custom {
+                    data: json!({
+                        "type": "burn",
+                        "id": *id,
+                        "burned": burned,
+                        "total": snake.crystals,
+                    }),
+                });
             }
 
             if outcome.mode_changed {
@@ -1735,6 +1751,96 @@ mod tests {
 
         assert!((spot[0] - 900.0).abs() < 0.01, "{spot:?}");
         assert!((spot[1] - 1100.0).abs() < 0.01, "{spot:?}");
+    }
+
+    /// `config_json` with a full pocket of crystals and no grace: the boost
+    /// needs something to burn and a snake that is actually moving.
+    fn game_with_crystals(start: u32) -> GameState {
+        let mut value = config_json(0.0);
+
+        value["models"]["s1"]["world"]["startCrystals"] = json!(start);
+
+        let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
+        let engine: EngineConfig = serde_json::from_value(value).unwrap();
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(MAP_JSON).unwrap();
+
+        game
+    }
+
+    /// The `burn` payloads of one step, in order.
+    fn burn_events(game: &mut GameState) -> Vec<serde_json::Value> {
+        let events: Vec<serde_json::Value> =
+            serde_json::from_str(&game.take_events_json()).unwrap();
+
+        events
+            .into_iter()
+            .filter(|e| e["type"] == "custom" && e["data"]["type"] == "burn")
+            .map(|e| e["data"].clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_boost_reports_every_crystal_it_burns() {
+        // the host cannot take the burnt crystals off the score without an
+        // event: `crystals` fires on pickups only, and `total` alone is reset
+        // by a respawn
+        let mut game = game_with_crystals(200);
+
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let before = game.sim.snakes.get(&1).unwrap().crystals;
+
+        game.take_events_json();
+        game.apply_input(1, 1, "down", "boost");
+
+        let mut burns: Vec<serde_json::Value> = Vec::new();
+
+        // a second of boost at `boostDrainPerSecond` of the fixture
+        for _ in 0..120 {
+            game.step(DT);
+            burns.extend(burn_events(&mut game));
+        }
+
+        let after = game.sim.snakes.get(&1).unwrap().crystals;
+
+        assert!(!burns.is_empty(), "a second of boost burnt nothing");
+
+        let reported: u64 = burns.iter().map(|b| b["burned"].as_u64().unwrap()).sum();
+
+        assert_eq!(
+            reported,
+            u64::from(before - after),
+            "reported {reported}, spent {}",
+            before - after
+        );
+        assert_eq!(
+            burns.last().unwrap()["total"].as_u64().unwrap(),
+            u64::from(after),
+            "the last `total` is not what the snake carries"
+        );
+        assert!(
+            burns.iter().all(|b| b["id"].as_u64() == Some(1)),
+            "a burn was reported for somebody else"
+        );
+    }
+
+    #[test]
+    fn driving_without_the_boost_burns_nothing() {
+        let mut game = game_with_crystals(200);
+
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        game.take_events_json();
+
+        for _ in 0..120 {
+            game.step(DT);
+
+            assert!(
+                burn_events(&mut game).is_empty(),
+                "a cruising snake burnt crystals"
+            );
+        }
     }
 
     #[test]

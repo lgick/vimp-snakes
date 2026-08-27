@@ -82,8 +82,8 @@ to the ready-made pairs in `assets/sounds/`.
    the one the factory reads; a class missing there answers "Constructor for X
    not found" at the first frame that needs it.
 4. Anything it needs from the engine goes in `componentDependencies`
-   (`renderer`, `soundManager`, `assetsBase`, `localPlayer` — an unknown name
-   is silently `undefined`).
+   (`renderer`, `soundManager`, `assetsBase`, `localPlayer`, `accolades` — an
+   unknown name is silently `undefined`).
 5. Cover it in `tests/client/parts.test.js`.
 
 Textures: prefer a **baker** over an image. Add the function to
@@ -91,6 +91,31 @@ Textures: prefer a **baker** over an image. Add the function to
 `parts.bakedAssets` with the `component` that receives it in `assets`. Bake
 white and tint per instance — that is what keeps sixty crystals in one batch.
 This package ships no images at all, and `assetsBase` is only used for sounds.
+
+## A badge for a place (`accolades`)
+
+The engine hands out numbers and the game decides what a number looks like.
+`accolades` is the fifth service of the dependency pool: `placeOf(id)` answers
+`{ daily, monthly }` — the entity's place in the game's global daily and
+monthly top, or `null` for anyone not in it (a bot, a guest, an entity with no
+player behind it). The host recomputes the places from the same public top the
+lobby draws and pushes them only when they change, so a badge follows the
+player onto any server and vanishes the moment the place does.
+
+Two rules, both learned the hard way:
+
+1. **Keep the service, never the answer.** Parts are built from the first
+   frame, long before the first places arrive, so a badge decided in the
+   constructor would be missing for exactly the players who have one. Ask at
+   draw time — `src/client/parts/Snake.js` calls `placeOf` every `update`.
+2. **A place is not a boolean.** `daily` is a number or `null`, and `0` is not
+   a place — compare against `null`/`undefined`, not for truthiness.
+
+To add a badge of your own: name `accolades` in `componentDependencies` for
+the part, bake its texture white if it needs one (`src/client/bakers/`, see
+`crown.js`) and put its numbers in `src/data/theme.js` next to `SNAKE.accolade`
+rather than in the drawing code. Then cover it in `tests/client/parts.test.js`
+with a stub service — the two badges of this game are tested that way.
 
 ## A new chat command
 

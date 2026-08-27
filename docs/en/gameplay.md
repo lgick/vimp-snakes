@@ -22,8 +22,10 @@ are simulated in this game's Rust core ([core.md](core.md)).
 3. **Playing** — the snake is always moving; steering is all there is.
 4. **Crashing** — the core kills the snake, scatters part of what it carried
    over the map and shows this tab the result overlay
-   (`src/client/gameOver.js`). Pressing **OK** (or `R`) respawns immediately,
-   in place, without a round boundary — the engine is never told anybody died.
+   (`src/client/gameOver.js`) with the score of that life. The life is a
+   **game**: its score is reported to the ratings at that moment. Pressing
+   **OK** (or `R`) respawns immediately, in place, without a round boundary —
+   the engine is never told anybody died — and the score starts again at zero.
 
 ## Controls
 
@@ -75,7 +77,9 @@ by up to 25°.
 - The **boost** (`W`) multiplies speed by `boostFactor` (1.9) and burns
   `boostDrainPerSecond` (6) crystals per second, dropping them back onto the
   map behind the tail; it is refused below `boostMinCrystals` (2). A boosting
-  leader feeds the pack.
+  leader feeds the pack — and pays for the speed: the burnt crystals come off
+  the score too (the core's `burn` event, [core.md](core.md)), so a chase is a
+  bet rather than a free ride.
 
 ## Crashing, kills and the spawn grace
 
@@ -99,38 +103,85 @@ blinks on every client, kills nobody and cannot be killed. Long enough to read
 the arena, and long enough for whoever was flying at that spot to steer
 around you.
 
-## Score and rank (Tab)
+## Score, ratings and the table (Tab)
 
-The engine's own scoring machinery never runs here (no kill is reported), so
-`src/host/StatBridge.js` keeps the numbers itself, per game id, and none of
-them ever goes down:
+**One life is one game.** The engine's own scoring machinery never runs here
+(no kill is reported), so `src/host/StatBridge.js` keeps the numbers itself,
+per game id, and a **respawn** resets all of them:
 
 | Number | Meaning |
 | --- | --- |
-| `eaten` | crystals swallowed, summed over every life (internal) |
-| `kills` | snakes that crashed into this one (internal) |
-| `score` | `eaten + 15 * kills` — the column the table ranks by |
-| `rank` | the engine's cross-game rating, kept on the auth service |
+| `eaten` | crystals swallowed during this life (internal) |
+| `kills` | snakes that crashed into this one during this life (internal) |
+| `score` | `eaten + 15 * kills` minus what the boost burnt, floored at zero |
+
+The reset happens on the respawn and not on the death: the result overlay
+reads the score off the HUD panel *after* the crash, so zeroing it there would
+show the player a zero instead of their result.
 
 A kill pays a flat bonus and nothing else: the victim keeps its own score, and
 what it was carrying is already scattered on the map — transferring the score
-too was a second reward for the same event and made the leaders run away.
+too was a second reward for the same event and made the leaders run away. The
+killer's bonus reaches the ratings with the KILLER's own death, together with
+the rest of their game.
 
-**Rank** is the number `/rank` reports and the only one that outlives the
-session. The engine's own rule is ±1 per kill through `reportKill`, which this
-game never reaches — and a kill here is somebody driving into *you*, which a
-player cannot go and get, so kills alone left everybody at rank 0. This game
-therefore pays **one rank point per 25 crystals eaten** on top of the point
-per kill, and pushes the profiles to the auth service itself with
-`vimp.flushPlayerData()` — at most once a minute, off the events the bridge
-already handles (a pickup, a crash, a join or a leave), and only when
-something has actually been earned:
-the engine flushes at a round end and a map change, and this game has neither.
-Rank is also what the lobby's Daily / Monthly / All-Time leaderboard ranks by.
+### The result of a game
 
-The stat table has five columns — `snake`, `status`, `rank`, `score`, `ping` —
-sorted by score descending, ties broken by rank. `deaths` is deliberately
-absent: the engine never fills it here.
+A crash ends the victim's game. The bridge hands the number over —
+`vimp.addPlayerPoints(gameId, score)` then `vimp.finishPlayerGame(gameId)` —
+and asks for an urgent flush (`vimp.flushPlayerData({ urgent: true })`), so a
+new daily best is in the database by the time the player presses `Tab`. What
+that one number means in each rating is the platform's decision, not the
+game's:
+
+| Rating | Rule |
+| --- | --- |
+| daily | the best result of a SINGLE game over the UTC day, live, reset at 00:00 UTC |
+| monthly | the SUM of every game of the calendar UTC month, live |
+| all-time | the sum over all time, recomputed once a day — both the list and your own row show the snapshot taken at 00:00 UTC |
+
+The lifetime profile follows the same event: `playerState.best` is the best
+score of a single life ever played, `playerState.eaten` the crystals swallowed
+over all of them.
+
+How often any of this reaches the database is the ENGINE's business — the game
+only ever *requests* a flush, and `lobbyConfig.playerData` holds the interval,
+the per-room queue and the backoff. A quiet room writes nothing at all.
+
+One known gap: a player who leaves in the MIDDLE of a life reports nothing.
+`HostGame.removeUser` starts its final flush before the core reports the
+departure, and by the rule this game is scored by ("the score at the END of a
+game") an unfinished game has no result to report anyway.
+
+### The table behind `Tab`
+
+`modules.stat.params.mode: 'leaderboard'` (`src/config/client.js`): `Tab`
+shows the game's **global daily top ten** — place · nick · score — and not
+this room at all. The client fetches the list from the master itself (at most
+once every 15 s, and the master caches it behind a TTL), the host sends no
+rows for it, and there is no header. A player outside the top ten replaces the
+tenth line with their own row and their own place; an unranked player gets a
+dash instead of a place.
+
+The room's own stat schema (`src/config/game.js`) is down to `name`, `status`,
+`score` and `latency`, and it stays only because the engine writes the first,
+second and last of them itself. The `rank` column is gone with the rating it
+named.
+
+### The badges of the top ten
+
+A place in the global top is worn on the snake itself, and everybody in the
+match sees it:
+
+| Place | Badge |
+| --- | --- |
+| daily top 10 | a diamond pattern down the body |
+| monthly top 10 | a crown over the head |
+
+The places arrive on the client's `accolades` service (an engine service, see
+[configuration.md](configuration.md#parts--game-entities)) and are matched **by nick** through the global top — the nick is globally unique,
+so the badge follows the player onto any server, and it is gone the moment the
+place is. It is worn in the match only: the lobby draws none of it.
 
 ## HUD panel
 
@@ -160,7 +211,7 @@ the whole set:
 | --- | --- |
 | `/bot <N>` | Set the number of bot snakes in the arena — a SET, not an add; `/bot 0` empties it. Restarts the round (the only way to put new actors in the world), which respawns everyone |
 | `/name <nick>` | Change name (validated and broadcast by the engine) |
-| `/rank` | Your current rank, as loaded from the auth service |
+| `/rank` | Your place in the DAILY rating — place, how many are ranked and the points behind it. Re-fetched from the master at the moment you ask, because the place moves with other people's games; an unranked player gets a dash |
 | `/nr` | New round — **dev mode only**; in this game a restart just respawns everyone, so it is a debugging tool, not a player's button |
 | `/like <reason>` · `/unlike <reason>` | The engine's server rating — intercepted **on the client** and sent to the master, never reaching the host. See the engine's [master.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/master.md#server-rating-likeunlike) |
 

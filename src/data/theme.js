@@ -32,6 +32,27 @@ export const SNAKE = {
   eye: 0xf7fbff,
   pupil: 0x101828,
   boostGlow: 0xffe98a,
+
+  // ***** the top-ten badges (snakes-v3) *****
+  //
+  // A place in the game's global top is drawn on the snake itself: a diamond
+  // pattern down the body for the daily top ten, a crown over the head for the
+  // monthly one. Both are worn by the CURRENT place — lose it and it is gone
+  // the moment the host resends the places.
+  accolade: {
+    // diamonds: how far apart along the smoothed curve they sit and how big
+    // they are, both in body radii, so the pattern scales with the snake
+    // instead of turning into dots on a fat one
+    diamondEvery: 1.6,
+    diamondLong: 0.9,
+    diamondWide: 0.55,
+    // the diamond is the body colour lifted towards white
+    diamondLighten: 0.55,
+    // the crown sprite: size in radii, and how far above the head it sits
+    crownScale: 1.9,
+    crownLift: 1.25,
+    crownTint: 0xffd76b,
+  },
 };
 
 export default ARENA;

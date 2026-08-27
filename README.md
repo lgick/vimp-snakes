@@ -49,9 +49,11 @@ The heavier you get the wider you steer: 3.4 rad/s empty, falling with the
 square root of the crystals down to a floor of 1.4. A leader stays steerable
 and stops being nimble — the fastest snake in the arena is a small one.
 
-The stat table (`Tab`) is a single leaderboard ranked by score, ties broken by
-rank. Everyone is a player: there are no teams, no spectators and nothing to
-vote on.
+One life is one game: the score of a crashed life is its result, and `Tab`
+shows the game's global daily top ten — the best single game of the day
+across every server — rather than this room. The top ten of the day wears a
+diamond pattern down the body, the top ten of the month a crown. Everyone is a
+player: there are no teams, no spectators and nothing to vote on.
 
 ## Run it
 

@@ -14,7 +14,7 @@ Bilingual docs live in `docs/en/` (canonical, ToC at `docs/en/README.md`) and
 matching `docs/en/` and `docs/ru/` pages in the same change. Area → page:
 
 - `src/config/*`, `src/data/*` → `configuration.md`
-- rules (controls, crystals, boost, crashes, score/rank, bots, commands) →
+- rules (controls, crystals, boost, crashes, score/ratings, bots, commands) →
   `gameplay.md`
 - `core/` (the Rust simulation and the WASM ABI) → `core.md`
 - `src/host/*`, `src/client/*` wiring → `architecture.md`
@@ -39,9 +39,13 @@ Full reasoning: `docs/en/architecture.md`. In short:
 0. **Game ids are STRINGS** on the engine side and numbers in core events —
    everything crossing that seam goes through `String()`.
 1. **`CoreEvent::Death` is never emitted**: the core owns death and respawn, so
-   `src/host/StatBridge.js` owns `score` *and* `rank` (a point per kill plus
-   one per `CRYSTALS_PER_RANK` eaten, flushed with `vimp.flushPlayerData()`).
-   `noSpectators` + `endlessRound` in `src/config/game.js` make that official.
+   `src/host/StatBridge.js` owns `score` — and ONE LIFE IS ONE GAME. A crash
+   reports the result (`vimp.addPlayerPoints` + `vimp.finishPlayerGame`, then
+   `vimp.flushPlayerData({ urgent: true })`), a respawn zeroes the counters,
+   the core's `burn` event takes the boost's fuel back off the score. How that
+   one number becomes the daily / monthly / all-time ratings, and how often it
+   is written, is the ENGINE's business. `noSpectators` + `endlessRound` in
+   `src/config/game.js` make that official.
 2. **The arena is derived from the map grid** by one formula in
    `core/src/arena.rs`, `src/client/parts/Arena.js`, `src/data/maps/arena.js`,
    and it grows with the crowd through `src/host/ArenaScaler.js` — never

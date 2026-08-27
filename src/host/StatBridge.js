@@ -15,37 +15,52 @@
 //
 // ***** THE SCORING MODEL *****
 //
-// The core knows one number: how many crystals a snake CARRIES. A crash empties
-// it and the boost burns it, which makes it useless as a score. So the three
-// numbers a player is ranked by are kept here, per game id, and none of them
-// ever goes down:
+// ONE LIFE IS ONE GAME. The core knows one number: how many crystals a snake
+// CARRIES. A crash empties it and the boost burns it, which makes it useless
+// as a score of its own, so the three numbers are kept here, per game id, and
+// all three are reset by a RESPAWN:
 //
-//   eaten  — crystals swallowed, summed over every life;
-//   kills  — snakes that crashed into this one;
-//   score  — eaten plus KILL_BONUS per kill.
+//   eaten  — crystals swallowed during this life;
+//   kills  — snakes that crashed into this one during this life;
+//   score  — eaten plus KILL_BONUS per kill, minus what the boost burnt.
+//
+// Reset on the respawn and not on the death: the result overlay
+// (src/client/gameOver.js) reads the score out of the HUD panel AFTER the
+// death, and zeroing it there would show the player a zero instead of their
+// result.
 //
 // Only `score` is published: `eaten` and `kills` are the inputs of the formula
-// (and of the saved profile), not columns of their own — the stat table shows
-// name, status, rank, score and ping and nothing else. The rank is not counted
-// here at all: `vimp.addPlayerRank()` keeps it, and `vimp.getPlayerRank()` is
-// read back at publish time.
+// (and of the saved profile), not columns of their own. The stat table shows
+// name, status, score and ping and nothing else — the rank column is gone, and
+// with it every rank call this bridge used to make: the ratings are fed by the
+// RESULT OF A GAME now (see `_onDeath`), and the engine decides how that
+// result lands in the daily, monthly and all-time slices.
 //
 // The core reports the crystals GAINED on a pickup, not just the new carried
 // total, and that is what these add up. Diffing totals on this side would be
 // wrong in both directions: a respawn hands out `world.startCrystals` without
-// an event, and the boost burns fuel without one either.
+// a pickup event, and the boost burns fuel through a `burn` event of its own.
 //
 // A kill pays a FIXED bonus and nothing else: the victim's score is not
 // transferred and not lost. Handing over the whole score used to be the rule,
 // but the victim's crystals already scatter on the map for the killer to eat,
 // so the transfer was a second reward on top of the first and the leaders'
-// scores ran away.
+// scores ran away. The killer's bonus reaches the ratings with the KILLER's
+// own death, together with the rest of their game.
 //
-// There is no round in this game, so there is no moment to reset on either.
 // The counters start at zero when a participant is first seen and are dropped
 // when the id changes hands: `reset(gameId)` does it explicitly, and
 // `_record()` does it by itself when the participant object behind an id is a
 // different one than last time (the engine builds a new Participant per join).
+//
+// ***** A KNOWN LIMITATION *****
+//
+// A player who leaves in the MIDDLE of a life does not hand that unfinished
+// score to the ratings: `HostGame.removeUser` starts its final flush before
+// the core reports the departure, so there is no moment left to report the
+// result in. Catching that race costs more than it is worth, and by the rule
+// this game is scored by ("the score at the END of a game") an unfinished
+// game has nothing to report anyway.
 //
 // All the stat columns are declared with `bodyMethod: '='` and every panel
 // write is a 'set': these are totals, not deltas, so a re-sent value is
@@ -55,43 +70,12 @@
 // scatter on the map anyway.
 const KILL_BONUS = 15;
 
-// ***** WHAT MOVES THE RANK *****
-//
-// `rank` is the engine's cross-game number, the one `/rank` reports and the
-// only one that outlives the session. Its built-in rule is ±1 per KILL, and
-// in this game a kill is somebody driving into YOU: you cannot go and get
-// one. A 20 000-tick headless run with bots ends with every kill credited to
-// a bot and zero for the humans — which is exactly what "my rank is always 0"
-// looks like from the inside.
-//
-// So the rank is fed by the thing a player actually does here: crystals. One
-// point per `CRYSTALS_PER_RANK` swallowed, on top of the point per kill,
-// counted off `eaten` — the counter that never goes down — so a crash costs
-// nothing already earned.
-const CRYSTALS_PER_RANK = 25;
-
-// How often the accumulated rank/state is pushed to the auth service.
-//
-// The engine syncs profiles at the end of a round and at a map change
-// (`RoundManager` -> `PlayerDataSync.flushAll`). This game has neither: the
-// round is endless and the arena is rebuilt underneath the engine
-// (src/host/ArenaScaler.js). Left alone, a match's rank would reach auth only
-// when a participant LEAVES — and the host's own player, whose tab simply
-// closes, would never be written at all. Hence `vimp.flushPlayerData()` on a
-// timer of our own, and only when there is something new to send.
-const FLUSH_INTERVAL_MS = 60_000;
-
 export default class StatBridge {
   constructor({ participants, stat }) {
     this._participants = participants;
     this._stat = stat;
-    // gameId -> { participant, eaten, kills, score, flushedEaten,
-    //             rankedEaten, published }
+    // gameId -> { participant, eaten, kills, score, flushedEaten, published }
     this._totals = new Map();
-    // when the profiles were last pushed to auth, and whether anything has
-    // changed since (see FLUSH_INTERVAL_MS)
-    this._lastFlush = 0;
-    this._rankDirty = false;
   }
 
   // `data` is the payload of a CoreEvent::Custom, `ctx` the `onCoreEvent`
@@ -118,24 +102,34 @@ export default class StatBridge {
         this._onCrystals(gameId, Number(data.gained) || 0, vimp, panel);
         break;
 
+      // the boost eats what the snake carries and sheds it on the map: the
+      // score has to follow, or boosting would be free
+      case 'burn':
+        this._onBurn(gameId, Number(data.burned) || 0, vimp, panel);
+        break;
+
       case 'death':
         this._onDeath(gameId, data, vimp, panel);
+        break;
+
+      // a new life is a new game: the counters start over
+      case 'respawn':
+        this._onRespawn(gameId, vimp, panel);
         break;
 
       // the core reports the crowd on every join and leave
       // (`src/host/ArenaScaler.js` resizes the arena off it). It is also the
       // only hook this bridge gets that fires when a participant APPEARS, and
       // a row nobody has written yet shows the column's `bodyValue` — a flat
-      // zero — however high the rank the master returned for them
+      // zero
       case 'population':
         this._publishNewcomers(vimp, panel);
         // a join or a leave is a natural moment to persist what the room has
-        // earned so far — the only other one this game has is a departure
-        this._maybeFlush(vimp);
+        // earned so far. It is a REQUEST and not a decision: the interval
+        // (and the per-server ceiling) belongs to the engine's PlayerDataSync
+        vimp?.flushPlayerData?.();
         break;
 
-      // 'respawn' is deliberately not here: none of the three counters is
-      // touched by a new life, that is the whole point of keeping them
       default:
         break;
     }
@@ -159,21 +153,29 @@ export default class StatBridge {
     record.eaten += gained;
     record.score += gained;
 
-    // whole points only, and off the running total rather than this pickup:
-    // twenty pickups of one crystal are worth the same as one of twenty
-    while (record.eaten - record.rankedEaten >= CRYSTALS_PER_RANK) {
-      record.rankedEaten += CRYSTALS_PER_RANK;
-      this._addRank(gameId, 1, vimp);
-    }
-
     this._publish(gameId, record, vimp, panel);
-    this._maybeFlush(vimp);
   }
 
-  // A death pays the killer a flat KILL_BONUS plus one rank point, and then
-  // touches the victim. A suicide (`killer === gameId`) and a crash into the
-  // edge (`killer === null`) pay nobody — the engine convention is that a
-  // suicide leaves the rank alone.
+  // The boost burnt `burned` crystals. They come off the score and NOT off
+  // `eaten`: `eaten` means "swallowed", not "still carried", and the lifetime
+  // sum in `playerState.eaten` is built on it.
+  _onBurn(gameId, burned, vimp, panel) {
+    const record = this._record(gameId);
+
+    if (!record || burned <= 0) {
+      return;
+    }
+
+    // the floor matters: a snake that spawns with `world.startCrystals` can
+    // burn fuel it never ate, and a negative score is not a thing
+    record.score = Math.max(0, record.score - burned);
+
+    this._publish(gameId, record, vimp, panel);
+  }
+
+  // A death pays the killer a flat KILL_BONUS, and then ENDS THE VICTIM'S
+  // GAME. A suicide (`killer === gameId`) and a crash into the edge
+  // (`killer === null`) pay nobody.
   _onDeath(gameId, data, vimp, panel) {
     const victim = this._record(gameId);
 
@@ -192,53 +194,50 @@ export default class StatBridge {
         killer.kills += 1;
         killer.score += KILL_BONUS;
 
-        // this game never emits CoreEvent::Death, so RoundManager.reportKill
-        // — the only place the engine touches rank itself — never runs; the
-        // optional call keeps old engine builds and test stubs working
-        this._addRank(killerId, 1, vimp);
-
         this._publish(killerId, killer, vimp, panel);
       }
     }
 
-    // the victim loses only what it was carrying, and the core empties that
-    // panel cell itself; the three counters here survive the crash
+    // the victim keeps its cells until the respawn: the result overlay reads
+    // the score off the panel after the death
     this._publish(gameId, victim, vimp, panel);
+
+    // ***** THE RESULT OF ONE GAME *****
+    //
+    // The game reports a number; how it lands in the daily best, the monthly
+    // sum and the all-time total is the platform's decision (`finishGame` in
+    // the engine's PlayerDataSync). There is deliberately no "delta against
+    // today's value" arithmetic on this side.
+    //
+    // The optional calls keep old engine builds and test stubs working — the
+    // same reason `addPlayerRank` was called that way before them.
+    vimp?.addPlayerPoints?.(gameId, victim.score);
+    vimp?.finishPlayerGame?.(gameId);
+
     this._recordBest(gameId, victim, vimp);
-    this._maybeFlush(vimp);
+
+    // urgent, unlike the request on 'population': a new daily best has to be
+    // in the database by the time the player presses Tab, not a minute later
+    vimp?.flushPlayerData?.({ urgent: true });
   }
 
-  // One rank point, and a note that auth is now behind. Bots have no profile
-  // on the auth service, so the engine's own call is a no-op for them — the
-  // flag is not, which is why it is set here and not by the callers.
-  _addRank(gameId, delta, vimp) {
-    // the optional call keeps old engine builds and test stubs working: this
-    // game never emits CoreEvent::Death, so RoundManager.reportKill — the
-    // only place the engine touches rank itself — never runs
-    vimp?.addPlayerRank?.(gameId, delta);
-    this._rankDirty = true;
-  }
+  // A new life: the score starts at zero and the HUD says so.
+  _onRespawn(gameId, vimp, panel) {
+    const record = this._record(gameId);
 
-  // Pushes the profiles to auth if anything changed and the interval is up.
-  // `Date.now()` and not a timer: `createModules` gets no TimerManager, and
-  // the events this bridge already handles arrive many times a second.
-  _maybeFlush(vimp) {
-    if (!this._rankDirty || !vimp?.flushPlayerData) {
+    if (!record) {
       return;
     }
 
-    const now = Date.now();
+    record.eaten = 0;
+    record.kills = 0;
+    record.score = 0;
+    // `eaten` restarts, so the watermark of what has already gone into the
+    // lifetime profile has to restart with it — otherwise the next death
+    // would subtract a total that no longer exists
+    record.flushedEaten = 0;
 
-    if (now - this._lastFlush < FLUSH_INTERVAL_MS) {
-      return;
-    }
-
-    this._lastFlush = now;
-    this._rankDirty = false;
-
-    // best-effort by contract: the engine's promise never rejects, and a
-    // failed PUT is retried by the next flush with the delta still owed
-    vimp.flushPlayerData();
+    this._publish(gameId, record, vimp, panel);
   }
 
   /// The counters of one game id, created on first sight. Returns null for an
@@ -266,8 +265,6 @@ export default class StatBridge {
       score: 0,
       // how much of `eaten` has already gone into the saved profile
       flushedEaten: 0,
-      // how much of `eaten` has already been paid out as rank
-      rankedEaten: 0,
       // whether the stat row has ever been written for this participant
       published: false,
     };
@@ -281,9 +278,7 @@ export default class StatBridge {
   //
   // Only the first time: after that the row is owned by the events, and
   // rewriting it here would cost a stat message per join for everyone in the
-  // room. `PlayerDataSync.load` is asynchronous, so the rank may not have
-  // arrived yet — a row written without it does not count as written, and
-  // the next join or leave tries again (see `_publish`).
+  // room.
   _publishNewcomers(vimp, panel) {
     for (const participant of this._participants.getAll()) {
       const gameId = participant.gameId;
@@ -303,7 +298,7 @@ export default class StatBridge {
   }
 
   // Both readers of the counters at once: the panel is the player's own HUD,
-  // the stat table is the scoreboard everybody sees.
+  // the stat table is the row the engine keeps for the room.
   //
   // `panel` is optional only because a caller may not have one; the engine
   // always passes it. It is safe to write here because the id got this far —
@@ -311,32 +306,17 @@ export default class StatBridge {
   // for every participant it creates. `Panel.updateUser` on an id it never
   // saw throws, so that order matters.
   //
-  // The rank comes from the engine (`HostGame.getPlayerRank`), not from a
-  // counter of our own — `vimp.addPlayerRank()` is what moves it. It is
-  // written only once the engine says it has actually arrived: the column is
-  // bodyMethod '=', and `getPlayerRank` answers 0 both for an id it does not
-  // know and for one whose `PlayerDataSync.load()` is still in flight, so a
-  // blind write puts a flat zero in the place of a rank of 120. An engine
-  // build without `isPlayerRankLoaded` simply never gets the column written
-  // by this bridge — a missing rank is a cell the player has not filled yet,
-  // a wrong one is a lie the table keeps repeating.
-  //
-  // The row counts as PUBLISHED only when the rank made it in. Everything
-  // 'population' owes a newcomer has to be in that row, and until the rank is
-  // there the next join or leave has to try again — of which there are
-  // exactly as many as there are joins and leaves.
+  // One column and nothing else. The rank column used to be written here off
+  // `vimp.getPlayerRank()`, gated on `isPlayerRankLoaded` so a not-yet-loaded
+  // zero could not overwrite a real number; both are gone with the column
+  // itself — by Tab the player now sees the global daily top ten, which the
+  // client fetches for itself (`modules.stat.params.mode: 'leaderboard'`).
   _publish(gameId, record, vimp, panel) {
     const { score } = record;
-    const columns = { score };
-    const rankReady = vimp?.isPlayerRankLoaded?.(gameId) ?? false;
 
-    if (rankReady) {
-      columns.rank = vimp.getPlayerRank(gameId);
-    }
+    record.published = true;
 
-    record.published = rankReady;
-
-    this._stat.updateUser(gameId, record.participant.teamId, columns);
+    this._stat.updateUser(gameId, record.participant.teamId, { score });
 
     if (!panel) {
       return;
@@ -350,9 +330,9 @@ export default class StatBridge {
   // end, map change and departure. It is the only place a personal record can
   // outlive the match.
   //
-  // `best` is the top SCORE reached, not the crystals carried at the moment of
-  // one crash — the score is what the table ranks by. `eaten` is a lifetime
-  // sum across matches, so only the part not flushed yet is added.
+  // `best` is the top score of a single LIFE — the game the ratings are fed
+  // with, not a running total across a visit. `eaten` is a lifetime sum across
+  // matches, so only the part not flushed yet is added.
   _recordBest(gameId, record, vimp) {
     if (!vimp?.getPlayerState) {
       return;

@@ -31,9 +31,10 @@ export default {
     // It bakes WHITE: one texture serves every colour and every tier through
     // `tint` and `scale`, and sixty crystals stay one batch.
     //
-    // The snake has no baked asset: its body is a stroked path whose width
+    // The snake's BODY has no baked asset: it is a stroked path whose width
     // follows the crystal count every frame, so there is nothing constant to
-    // bake.
+    // bake. The crown of the monthly top ten is constant, and is baked white
+    // like the gem — the part tints and scales it.
     bakedAssets: {
       vimp: [
         {
@@ -41,12 +42,17 @@ export default {
           component: 'Crystal',
           params: { radius: 32, facets: 6 },
         },
+        {
+          name: 'crown',
+          component: 'Snake',
+          params: { size: 64, points: 3 },
+        },
       ],
     },
 
-    // the service pool has exactly four entries — renderer, soundManager,
-    // assetsBase, localPlayer. An unknown name is not an error: the part just
-    // gets undefined and draws nothing.
+    // the service pool has exactly five entries — renderer, soundManager,
+    // assetsBase, localPlayer, accolades. An unknown name is not an error: the
+    // part just gets undefined and draws nothing.
     componentDependencies: {
       // a snake plays the pickup cue when its own count goes up, and the death
       // cue as it leaves the canvas — but only for the player of THIS tab: an
@@ -56,6 +62,10 @@ export default {
       // 'is this snake mine?' — the part compares the id it was built with
       // against the client's own game id (engine service, see Snake.js)
       localPlayer: ['Snake'],
+      // 'what place does this snake hold in the global top?' — the engine
+      // hands out numbers, the part draws the badge for them: a diamond
+      // pattern for the daily top ten, a crown for the monthly one
+      accolades: ['Snake'],
     },
 
     sounds,
@@ -179,7 +189,13 @@ export default {
             'Vote failed',
           ],
           m: ['Current map: {0}', 'Next map: {0}'],
-          c: ['Command not found', 'Your rank: {0}'],
+          c: [
+            'Command not found',
+            // '/rank' answers with the place in the DAILY rating: place,
+            // how many are ranked, points. An unranked player gets '—' —
+            // the same dash the leaderboard puts in place of a place
+            'Your place today: {0} of {1} ({2} points)',
+          ],
           n: ['Invalid name', '{0} changed name to {1}'],
           g: ['Bot snakes in the arena: {0}', 'Invalid bot count'],
         },
@@ -224,29 +240,22 @@ export default {
 
     stat: {
       params: {
-        // five columns, positionally matched to the host's `key` indexes.
-        // Columns 2 and 3 are written by this game itself instead of by the
-        // engine's kill machinery (src/config/game.js).
-        columns: ['snake', 'status', 'rank', 'score', 'ping'],
-        // one playing team, so one aggregate header
-        heads: {
-          1: 'players',
-        },
-        // one body too: gameConfig declares `noSpectators`, so team 1 is the
-        // only team a row can be in
-        bodies: {
-          1: 'players',
-        },
-        // [columnIndex, descending]; sorting is numeric, a text column sorts
-        // as 0. The leader is whoever has the most total points (column 3);
-        // ties break on rank (column 2), so the player with the longer history
-        // of kills ranks first.
-        sortList: {
-          players: [
-            [3, true],
-            [2, true],
-          ],
-        },
+        // Tab shows the game's GLOBAL top ten, not this room: the engine
+        // draws none of the host's rows in this mode (and the host stops
+        // sending them), the client fetches the list from the master itself.
+        // Needs engine API 4.
+        mode: 'leaderboard',
+        // the daily slice: the best result of a SINGLE game over a UTC day
+        period: 'day',
+        // ten rows; a player outside the top replaces the tenth of them
+        limit: 10,
+        // Tab is pressed often, and the master collapses the top behind a
+        // TTL cache anyway
+        refreshMs: 15000,
+        // place · nick · score. The order comes from auth, so `heads`,
+        // `bodies` and `sortList` are all gone: there is nothing to sort and
+        // no team in a global list
+        columns: ['#', 'snake', 'score'],
       },
     },
 
