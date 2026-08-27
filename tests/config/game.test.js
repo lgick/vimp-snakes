@@ -10,8 +10,20 @@ describe('gameConfig', () => {
     expect(Object.keys(maps)).toContain(gameConfig.currentMap);
   });
 
-  it('has a spectator team among the teams', () => {
-    expect(gameConfig.teams).toHaveProperty(gameConfig.spectatorTeam);
+  // noSpectators: the engine gate demands exactly one team and no
+  // spectatorTeam key — a leftover second team would be a team nobody can
+  // ever reach, and the boot gate refuses the config outright
+  it('declares one team and no spectators', () => {
+    expect(gameConfig.noSpectators).toBe(true);
+    expect(Object.keys(gameConfig.teams)).toEqual(['players']);
+    expect(gameConfig.spectatorTeam).toBeUndefined();
+  });
+
+  // the round is endless in the engine's terms too: nothing it starts by
+  // itself may wipe the stat table, which is this game's only score
+  it('asks the engine to leave the round alone', () => {
+    expect(gameConfig.endlessRound).toBe(true);
+    expect(gameConfig.initialVote).toBeUndefined();
   });
 
   it('gives every playing team respawns for a full room', () => {

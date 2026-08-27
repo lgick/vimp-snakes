@@ -8,6 +8,8 @@ import {
   newRoundCommand,
   rankCommand,
 } from '../../src/host/metaCommands.js';
+import ParticipantManager from 'vimp-engine/host/meta/player/ParticipantManager.js';
+import gameConfig from '../../src/config/game.js';
 import mapData from '../../src/data/maps/arena.js';
 
 // The only playing team of this game: everyone is a snake and there is nothing
@@ -177,17 +179,44 @@ describe('ScriptedManager', () => {
 
     expect(manager.removeOneForHuman(TEAM)).toBe(true);
     expect(manager.getCountsPerTeam()).toEqual({ [TEAM]: 1 });
-    expect(manager.removeOneForHuman('spectators')).toBe(false);
+    // there is no second team in this game any more, and a name that is not
+    // a team must stay a no-op rather than a crash
+    expect(manager.removeOneForHuman('nobody')).toBe(false);
   });
 
   it('removes bots of one team or of all of them', () => {
     manager.createScripted(3, TEAM);
 
-    manager.removeScripted('spectators');
+    manager.removeScripted('nobody');
     expect(manager.getCountsPerTeam()).toEqual({ [TEAM]: 3 });
 
     manager.removeScripted();
     expect(manager.getCountsPerTeam()).toEqual({});
+  });
+});
+
+// The engine's join path under `noSpectators`: there is no spectator team to
+// park a joiner in, so `createHuman` has to put them into `players` outright.
+// The stat row and the snake both follow from that team — the engine writes the
+// row with `participants.joinTeamId` and hands out the actor through
+// `RoundManager.admitPlayer` on the first acknowledged frame.
+describe('joining without spectators', () => {
+  it('puts a connecting human into the only team', () => {
+    const participants = new ParticipantManager(
+      gameConfig.teams,
+      gameConfig.spectatorTeam,
+      gameConfig.roomDefaults.maxPlayers,
+      gameConfig.scripted,
+    );
+
+    const gameId = participants.createHuman({ name: 'P1', model: 's1' }, 'sock');
+    const user = participants.get(gameId);
+
+    expect(user.team).toBe(TEAM);
+    expect(user.teamId).toBe(gameConfig.teams[TEAM]);
+    expect(participants.joinTeamId).toBe(gameConfig.teams[TEAM]);
+    expect(participants.getTeamSize(TEAM)).toBe(1);
+    expect(participants.getPlayableTeams()).toEqual([TEAM]);
   });
 });
 

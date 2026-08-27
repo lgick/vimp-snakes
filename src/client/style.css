@@ -10,27 +10,18 @@
  * game owns outright (src/client/gameOver.js).
  */
 
-#panel-eaten::before {
-  content: '◆ ';
-  color: #7ef9ff;
-}
-
-#panel-kills::before {
-  content: '☠ ';
-  color: #ff7a8a;
-}
-
 #panel-score::before {
   content: '★ ';
   color: #ffd76b;
 }
 
 /*
- * Cells the player never sees. Three of them carry data the game reads out of
- * PANEL_DATA rather than shows — `crystals` (carried right now), `dead` (the
- * signal the result screen fires off) and `mode` (CRUISE / BOOST) — and
- * `time` exists only because the engine sends the key 't' unconditionally.
- * All four are declared on both halves so invariant 6 (panelContract) holds.
+ * Cells the player never sees — everything but the score. Three of them carry
+ * data the game reads out of PANEL_DATA rather than shows — `crystals`
+ * (carried right now), `dead` (the signal the result screen fires off) and
+ * `mode` (CRUISE / BOOST) — and `time` exists only because the engine sends
+ * the key 't' unconditionally. All four are declared on both halves so
+ * invariant 6 (panelContract) holds.
  *
  * `!important` is not decoration: PanelView.update() writes
  * `elem.style.display = 'table-cell'` inline on every value it delivers, and
@@ -41,39 +32,6 @@
 #panel-mode,
 #panel-time {
   display: none !important;
-}
-
-/*
- * ***** the stat table *****
- *
- * Six columns instead of the engine's five (name · status · eaten · kills ·
- * score · ping). The engine's own sheet gives widths to :nth-child(1..5) that
- * already add up to 100%, and the table is `table-layout: fixed` — the sixth
- * column would be squeezed to nothing. So every width is restated here, which
- * is exactly the escape hatch invariant C6 (statColumns) names when it warns
- * about a column count other than five.
- */
-#stat .stat-head span:nth-child(1),
-#stat table td:nth-child(1) {
-  width: 34%;
-}
-
-#stat .stat-head span:nth-child(2),
-#stat table td:nth-child(2) {
-  width: 12%;
-  text-align: center;
-}
-
-#stat .stat-head span:nth-child(3),
-#stat table td:nth-child(3),
-#stat .stat-head span:nth-child(4),
-#stat table td:nth-child(4),
-#stat .stat-head span:nth-child(5),
-#stat table td:nth-child(5),
-#stat .stat-head span:nth-child(6),
-#stat table td:nth-child(6) {
-  width: 13.5%;
-  text-align: right;
 }
 
 /* ***** the result screen ***** */

@@ -19,8 +19,8 @@ Mouse and touch are the second way to play, and the only one a phone has:
 faster than the keys would turn it; **double tap and keep holding** — boost,
 for as long as the finger stays down. Releasing hands the snake back to
 whatever heading it had, and taking hold of `A`/`D` cancels the pointer
-target. The channel is muted while the chat, the stat table or a vote is
-open, so typing a message never steers the snake.
+target. The channel is muted while the chat or the stat table is open, so
+typing a message never steers the snake.
 
 Three ways it ends and only one of them is your fault:
 

@@ -34,7 +34,10 @@ score. The edge and other snakes' bodies kill; your own tail does not.
    core owns death and respawn outright. The engine therefore never writes
    `score`/`deaths` either — `src/host/StatBridge.js` does, off `custom`
    events, reached from `onCoreEvent` through a module-scope handle set in
-   `createModules` (that hook's context is only `{ vimp, panel }`).
+   `createModules` (that hook's context is only `{ vimp, panel }`). The two
+   engine flags in `src/config/game.js` make that official: `noSpectators`
+   (one team, joiner goes straight into it, no vote) and `endlessRound`
+   (the engine never restarts the round or wipes the stat table by itself).
 2. **The arena is derived from the map grid**, by one formula in
    `core/src/arena.rs`, `src/client/parts/Arena.js` and
    `src/data/maps/arena.js`. A free-form `gameConfig.parts.*` key reaches the

@@ -183,14 +183,52 @@ describe('client config', () => {
     }
   });
 
+  it('shows exactly name, status, rank, score and ping', () => {
+    // the five columns the game asks for, in the engine's own column count —
+    // the moment there are six, invariant C6 (statColumns) needs an escape
+    // hatch in style.css to hand the extra one a width
+    const { stat } = hostPlugin.gameConfig;
+    const byKey = Object.entries(stat)
+      .sort(([, a], [, b]) => a.key - b.key)
+      .map(([name]) => name);
+
+    expect(byKey).toEqual(['name', 'status', 'rank', 'score', 'latency']);
+    expect(clientConfig.modules.stat.params.columns).toEqual([
+      'snake',
+      'status',
+      'rank',
+      'score',
+      'ping',
+    ]);
+  });
+
+  // `noSpectators` removed the second body: a stat body keyed by a team the
+  // config no longer declares would be a section the table can never fill
+  it('gives the table one body and one head, both the playing team', () => {
+    const { params } = clientConfig.modules.stat;
+    const teamId = hostPlugin.gameConfig.teams.players;
+
+    expect(Object.keys(params.bodies)).toEqual([String(teamId)]);
+    expect(Object.keys(params.heads)).toEqual([String(teamId)]);
+    expect(params.bodies[teamId]).toBe('players');
+  });
+
+  // nothing is voted on here any more: one team, one endless map, and a join
+  // that no longer asks. The engine's own defaults still give the module its
+  // elems, so an empty menu is all that is left of it
+  it('ships no vote module and no initial vote', () => {
+    expect(clientConfig.modules.vote?.params).toBeUndefined();
+    expect(hostPlugin.gameConfig.initialVote).toBeUndefined();
+  });
+
   it('ranks the table by the score column the bridge writes', () => {
     const [[primary, descending], [secondary]] =
       clientConfig.modules.stat.params.sortList.players;
 
     expect(primary).toBe(hostPlugin.gameConfig.stat.score.key);
     expect(descending).toBe(true);
-    // ties break on crystals eaten
-    expect(secondary).toBe(hostPlugin.gameConfig.stat.eaten.key);
+    // ties break on rank — the only other number the table shows
+    expect(secondary).toBe(hostPlugin.gameConfig.stat.rank.key);
   });
 
   it('leaves the two columns the engine fills to the engine', () => {

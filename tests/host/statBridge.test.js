@@ -3,8 +3,9 @@ import StatBridge from '../../src/host/StatBridge.js';
 
 // The bridge is the only writer of the scoring columns in this game: the
 // engine fills score and deaths off its kill reports, and this core never
-// reports a kill (src/config/game.js). Everything the player is ranked by —
-// eaten, kills, score — is accumulated here and nowhere else.
+// reports a kill (src/config/game.js). The score is accumulated here and
+// nowhere else; `eaten` and `kills` stay internal counters feeding it, and the
+// only columns published are `score` and the engine's `rank`.
 const TEAM_ID = 1;
 
 /// The engine's participant map, reduced to `get`. The keys are STRINGS, as
@@ -53,7 +54,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'crystals', id: '3', total: 4, gained: 4 }, { stat });
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 2, gained: 1 }, { stat });
 
-    expect(statOf(stat, '3')).toEqual({ eaten: 5, kills: 0, score: 5 });
+    expect(statOf(stat, '3')).toEqual({ score: 5 });
   });
 
   it('keeps the counters across a death and a respawn', () => {
@@ -62,7 +63,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'respawn', id: 3 }, {});
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 8, gained: 5 }, {});
 
-    expect(statOf(stat, '3')).toEqual({ eaten: 17, kills: 0, score: 17 });
+    expect(statOf(stat, '3')).toEqual({ score: 17 });
   });
 
   it('pays the killer a flat bonus of 15 per kill', () => {
@@ -75,9 +76,9 @@ describe('StatBridge', () => {
     );
 
     // 5 eaten + one kill worth KILL_BONUS, and nothing of the victim's 20
-    expect(statOf(stat, '7')).toEqual({ eaten: 5, kills: 1, score: 20 });
+    expect(statOf(stat, '7')).toEqual({ score: 20 });
     // the victim keeps everything it had earned
-    expect(statOf(stat, '3')).toEqual({ eaten: 20, kills: 0, score: 20 });
+    expect(statOf(stat, '3')).toEqual({ score: 20 });
   });
 
   it('takes nothing away from a victim with a big score', () => {
@@ -89,8 +90,8 @@ describe('StatBridge', () => {
     );
 
     // killing the leader is worth the same 15 as killing a fresh snake
-    expect(statOf(stat, '7')).toEqual({ eaten: 0, kills: 1, score: 15 });
-    expect(statOf(stat, '3')).toEqual({ eaten: 500, kills: 0, score: 500 });
+    expect(statOf(stat, '7')).toEqual({ score: 15 });
+    expect(statOf(stat, '3')).toEqual({ score: 500 });
   });
 
   it('awards nothing when the arena edge did the killing', () => {
@@ -100,22 +101,91 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: null }, {});
 
     expect(stat.updateUser.mock.calls.every(call => call[0] === '3')).toBe(true);
-    expect(statOf(stat, '3')).toEqual({ eaten: 9, kills: 0, score: 9 });
+    expect(statOf(stat, '3')).toEqual({ score: 9 });
   });
 
   it('does not pay a snake for running into itself', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 9, gained: 9 }, {});
     bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: 3 }, {});
 
-    expect(statOf(stat, '3')).toEqual({ eaten: 9, kills: 0, score: 9 });
+    expect(statOf(stat, '3')).toEqual({ score: 9 });
   });
 
-  it('writes the same three numbers into the HUD panel', () => {
+  it('pays the killer one rank point through the engine facade', () => {
+    // this game never emits CoreEvent::Death, so RoundManager.reportKill —
+    // the engine's own rank writer — never runs; the bridge does it instead
+    const vimp = { addPlayerRank: vi.fn(), setPlayerState: vi.fn() };
+
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: 7 },
+      { vimp },
+    );
+
+    expect(vimp.addPlayerRank).toHaveBeenCalledTimes(1);
+    expect(vimp.addPlayerRank).toHaveBeenCalledWith('7', 1);
+  });
+
+  it('leaves the rank alone on an edge crash and on a suicide', () => {
+    const vimp = { addPlayerRank: vi.fn(), setPlayerState: vi.fn() };
+
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: null },
+      { vimp },
+    );
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 2, killer: 3 },
+      { vimp },
+    );
+
+    expect(vimp.addPlayerRank).not.toHaveBeenCalled();
+  });
+
+  it('survives an engine build without addPlayerRank', () => {
+    const vimp = { setPlayerState: vi.fn() };
+
+    expect(() => bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: 7 },
+      { vimp },
+    )).not.toThrow();
+
+    expect(statOf(stat, '7')).toEqual({ score: 15 });
+  });
+
+  it('writes the score, and only the score, into the HUD panel', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { panel });
 
-    expect(panel.updateUser).toHaveBeenCalledWith('3', 'eaten', 4, 'set');
-    expect(panel.updateUser).toHaveBeenCalledWith('3', 'kills', 0, 'set');
     expect(panel.updateUser).toHaveBeenCalledWith('3', 'score', 4, 'set');
+    expect(panel.updateUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes the rank the engine keeps, next to the score', () => {
+    // the bridge counts no rank of its own: `addPlayerRank` moves it and
+    // `getPlayerRank` reads it back at publish time
+    const vimp = { getPlayerRank: vi.fn(() => 4) };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
+
+    expect(vimp.getPlayerRank).toHaveBeenCalledWith('3');
+    expect(statOf(stat, '3')).toEqual({ score: 4, rank: 4 });
+  });
+
+  it('writes no rank at all when the engine has none for the id', () => {
+    // the column is bodyMethod '=', so publishing undefined would replace the
+    // last known rank with an empty cell
+    const vimp = { getPlayerRank: vi.fn(() => undefined) };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { vimp });
+
+    expect(statOf(stat, '3')).toEqual({ score: 4 });
+  });
+
+  it('survives an engine build without getPlayerRank', () => {
+    expect(() => bridge.onCoreEvent(
+      { type: 'crystals', id: 3, total: 4, gained: 4 },
+      { vimp: {}, panel },
+    )).not.toThrow();
+
+    expect(statOf(stat, '3')).toEqual({ score: 4 });
   });
 
   it('starts a game id over when it changes hands', () => {
@@ -126,7 +196,7 @@ describe('StatBridge', () => {
     participants.map.set('3', { gameId: '3', teamId: TEAM_ID });
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, {});
 
-    expect(statOf(stat, '3')).toEqual({ eaten: 4, kills: 0, score: 4 });
+    expect(statOf(stat, '3')).toEqual({ score: 4 });
   });
 
   it('zeroes every counter on an explicit reset', () => {
@@ -134,7 +204,7 @@ describe('StatBridge', () => {
     bridge.reset('3');
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 2, gained: 2 }, {});
 
-    expect(statOf(stat, '3')).toEqual({ eaten: 2, kills: 0, score: 2 });
+    expect(statOf(stat, '3')).toEqual({ score: 2 });
   });
 
   it('keeps a personal best of the score in the saved profile', () => {

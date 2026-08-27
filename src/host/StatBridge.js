@@ -24,6 +24,12 @@
 //   kills  — snakes that crashed into this one;
 //   score  — eaten plus KILL_BONUS per kill.
 //
+// Only `score` is published: `eaten` and `kills` are the inputs of the formula
+// (and of the saved profile), not columns of their own — the stat table shows
+// name, status, rank, score and ping and nothing else. The rank is not counted
+// here at all: `vimp.addPlayerRank()` keeps it, and `vimp.getPlayerRank()` is
+// read back at publish time.
+//
 // The core reports the crystals GAINED on a pickup, not just the new carried
 // total, and that is what these add up. Diffing totals on this side would be
 // wrong in both directions: a respawn hands out `world.startCrystals` without
@@ -77,7 +83,7 @@ export default class StatBridge {
 
     switch (data.type) {
       case 'crystals':
-        this._onCrystals(gameId, Number(data.gained) || 0, panel);
+        this._onCrystals(gameId, Number(data.gained) || 0, vimp, panel);
         break;
 
       case 'death':
@@ -99,7 +105,7 @@ export default class StatBridge {
   }
 
   // One pickup, worth `gained` crystals.
-  _onCrystals(gameId, gained, panel) {
+  _onCrystals(gameId, gained, vimp, panel) {
     const record = this._record(gameId);
 
     if (!record || gained <= 0) {
@@ -109,12 +115,13 @@ export default class StatBridge {
     record.eaten += gained;
     record.score += gained;
 
-    this._publish(gameId, record, panel);
+    this._publish(gameId, record, vimp, panel);
   }
 
-  // A death pays the killer a flat KILL_BONUS and then touches the victim. A
-  // suicide (`killer === gameId`) and a crash into the edge (`killer === null`)
-  // pay nobody.
+  // A death pays the killer a flat KILL_BONUS plus one rank point, and then
+  // touches the victim. A suicide (`killer === gameId`) and a crash into the
+  // edge (`killer === null`) pay nobody — the engine convention is that a
+  // suicide leaves the rank alone.
   _onDeath(gameId, data, vimp, panel) {
     const victim = this._record(gameId);
 
@@ -133,13 +140,18 @@ export default class StatBridge {
         killer.kills += 1;
         killer.score += KILL_BONUS;
 
-        this._publish(killerId, killer, panel);
+        // this game never emits CoreEvent::Death, so RoundManager.reportKill
+        // — the only place the engine touches rank itself — never runs; the
+        // optional call keeps old engine builds and test stubs working
+        vimp?.addPlayerRank?.(killerId, 1);
+
+        this._publish(killerId, killer, vimp, panel);
       }
     }
 
     // the victim loses only what it was carrying, and the core empties that
     // panel cell itself; the three counters here survive the crash
-    this._publish(gameId, victim, panel);
+    this._publish(gameId, victim, vimp, panel);
     this._recordBest(gameId, victim, vimp);
   }
 
@@ -183,21 +195,27 @@ export default class StatBridge {
   // `_record()` found a participant, and the engine calls `panel.addUser()`
   // for every participant it creates. `Panel.updateUser` on an id it never
   // saw throws, so that order matters.
-  _publish(gameId, record, panel) {
-    const { eaten, kills, score } = record;
+  //
+  // The rank comes from the engine (`HostGame.getPlayerRank`), not from a
+  // counter of our own — `vimp.addPlayerRank()` is what moves it. A missing
+  // method or a missing player gives `undefined`, and that is NOT written:
+  // the column is bodyMethod '=', so an empty value would replace the last
+  // known rank with a blank cell.
+  _publish(gameId, record, vimp, panel) {
+    const { score } = record;
+    const rank = vimp?.getPlayerRank?.(gameId);
+    const columns = { score };
 
-    this._stat.updateUser(gameId, record.participant.teamId, {
-      eaten,
-      kills,
-      score,
-    });
+    if (rank !== undefined && rank !== null) {
+      columns.rank = rank;
+    }
+
+    this._stat.updateUser(gameId, record.participant.teamId, columns);
 
     if (!panel) {
       return;
     }
 
-    panel.updateUser(gameId, 'eaten', eaten, 'set');
-    panel.updateUser(gameId, 'kills', kills, 'set');
     panel.updateUser(gameId, 'score', score, 'set');
   }
 

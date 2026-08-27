@@ -13,8 +13,9 @@ import { arenaSizeFor, buildArena, PLAYER_STEP } from '../data/maps/arena.js';
 //
 // The engine loads a map once per round and the room here has one endless
 // round, so its own map path (`RoundManager.forceChangeMap`) is not an option:
-// it clears the world, empties the panel and the stat table and parks everyone
-// in the spectators. Nothing about a resize should cost a player their score.
+// it clears the world, empties the panel and the stat table and takes every
+// snake off the canvas. Nothing about a resize should cost a player their
+// score.
 //
 // What a resize actually needs is exactly two messages, and the plugin holds
 // both ends:

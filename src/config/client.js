@@ -129,6 +129,11 @@ export default {
         // texts of the system message codes: the host sends 'group:index',
         // the text lives here. Groups s/v/m/c/n are the engine's — the game
         // owns 'g' (see src/host/systemMessages.js).
+        //
+        // Several of the engine's texts are unreachable here (there is no
+        // spectator status to switch to and no vote to hold), but the index
+        // inside a group IS the code: dropping one shifts every text after it
+        // onto the wrong event. They stay.
         messages: {
           s: [
             'Team {0} is full. Your current team: {1}',
@@ -160,11 +165,9 @@ export default {
       // 't' is sent by the engine itself and MUST map to a type: 'time'
       // field, or the round time never appears on the HUD.
       keys: {
-        e: 'eaten',
-        k: 'kills',
         s: 'score',
         // carried right now — geometry and boost fuel, not a number the HUD
-        // shows; the three above are what the player reads
+        // shows; `score` above is the only cell the player reads
         c: 'crystals',
         // 0 alive / crystals+1 dead — read by the result overlay, never shown
         d: 'dead',
@@ -177,15 +180,14 @@ export default {
       // and needs no cell: the engine ships its own `<h1 id="logo">` above the
       // panel.
       //
-      // The last four are declared but hidden by style.css. Three of them
-      // (crystals, dead, mode) are host fields, and invariant 6
-      // (panelContract) requires the client to name every one of those; `time`
-      // is the engine's own key 't', which PanelView dereferences unguarded —
-      // dropping the field crashes the HUD on the first round-time tick, so it
-      // stays declared even though this game's round never ends.
+      // Only `score` is visible; the last four are declared but hidden by
+      // style.css. Three of them (crystals, dead, mode) are host fields, and
+      // invariant 6 (panelContract) requires the client to name every one of
+      // those; `time` is the engine's own key 't', which PanelView
+      // dereferences unguarded — dropping the field crashes the HUD on the
+      // first round-time tick, so it stays declared even though this game's
+      // round never ends.
       fields: [
-        { name: 'eaten', elem: 'panel-eaten', type: 'value' },
-        { name: 'kills', elem: 'panel-kills', type: 'value' },
         { name: 'score', elem: 'panel-score', type: 'value' },
         { name: 'crystals', elem: 'panel-crystals', type: 'value' },
         { name: 'dead', elem: 'panel-dead', type: 'value' },
@@ -196,46 +198,36 @@ export default {
 
     stat: {
       params: {
-        // six columns, positionally matched to the host's `key` indexes.
-        // Columns 2..4 are written by this game itself instead of by the
+        // five columns, positionally matched to the host's `key` indexes.
+        // Columns 2 and 3 are written by this game itself instead of by the
         // engine's kill machinery (src/config/game.js).
-        columns: ['snake', 'status', 'eaten', 'kills', 'score', 'ping'],
+        columns: ['snake', 'status', 'rank', 'score', 'ping'],
         // one playing team, so one aggregate header
         heads: {
           1: 'players',
         },
+        // one body too: gameConfig declares `noSpectators`, so team 1 is the
+        // only team a row can be in
         bodies: {
           1: 'players',
-          2: 'spectators',
         },
         // [columnIndex, descending]; sorting is numeric, a text column sorts
-        // as 0. The leader is whoever has the most total points (column 4);
-        // ties break on crystals eaten (column 2), so a player who earned the
-        // same score by eating rather than by killing ranks first.
+        // as 0. The leader is whoever has the most total points (column 3);
+        // ties break on rank (column 2), so the player with the longer history
+        // of kills ranks first.
         sortList: {
           players: [
-            [4, true],
+            [3, true],
             [2, true],
           ],
         },
       },
     },
 
-    vote: {
-      params: {
-        // template = [title, values?, timeOff?]; 'teams' and 'maps' are
-        // substituted by the engine with the live lists
-        templates: {
-          teamChange: ['Play or watch?', 'teams', true],
-          mapChangeBySystem: ['Choose the next map'],
-          mapChangeByUser: ['{0} suggested the map: {1}', ['Yes', 'No']],
-        },
-        // Один пункт: карта в этой игре одна и вечная, предлагать смену
-        // нечему. Шаблоны mapChange* остаются — их рисует движок, если сам
-        // заведёт голосование за карту.
-        menu: [['teamChange', ['Play / watch', 'teams']]],
-      },
-    },
+    // Модуля vote здесь нет вовсе. Голосовать в этой игре не за что:
+    // команда одна (`noSpectators`), карта одна и вечная, а вход больше не
+    // спрашивает «играть или смотреть». Движковые дефолты дают модулю его
+    // elems, меню по 'm' открывается пустым.
   },
 
   // texts of the GAME_INFORM_DATA port, addressed by index. The indexes are

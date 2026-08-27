@@ -41,7 +41,6 @@ export default {
           { keys: '', text: 'your own tail does not' },
           { separator: true },
           { keys: 'c', text: 'chat' },
-          { keys: 'm', text: 'vote' },
           { keys: '<Tab>', text: 'stats', last: true },
         ],
       },

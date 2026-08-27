@@ -63,16 +63,12 @@ describe('StatBridge against the engine modules', () => {
     const [rows] = stat.getFull();
     const [, , columns] = rows.find(row => row[0] === gameId);
 
-    expect(columns[gameConfig.stat.eaten.key]).toBe(6);
     expect(columns[gameConfig.stat.score.key]).toBe(6);
 
     const updates = panel.processUpdates();
 
     expect(updates[gameId]).toEqual(
-      expect.arrayContaining([
-        `${gameConfig.panel.fields.eaten.key}:6`,
-        `${gameConfig.panel.fields.score.key}:6`,
-      ]),
+      expect.arrayContaining([`${gameConfig.panel.fields.score.key}:6`]),
     );
   });
 
@@ -104,7 +100,6 @@ describe('StatBridge against the engine modules', () => {
     const [rows] = stat.getFull();
     const [, , columns] = rows.find(row => row[0] === gameId);
 
-    expect(columns[gameConfig.stat.kills.key]).toBe(1);
     expect(columns[gameConfig.stat.score.key]).toBe(15);
   });
 });

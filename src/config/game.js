@@ -7,12 +7,13 @@ import maps from '../data/maps/index.js';
 // engine meta needs (teams, panel, stat, room form) and what it hands over to
 // the Rust core untouched (models, weapons, playerKeys, snapshot).
 //
-// The engine asserts nine paths right after import — roomDefaults.maxPlayers,
+// The engine asserts eight paths right after import — roomDefaults.maxPlayers,
 // snapshot, parts.models, parts.weapons, parts.friendlyFire, panel.fields,
-// playerKeys, teams, spectatorTeam — plus `spectatorTeam` being a key of
-// `teams`. Everything else is read lazily, which is why a typo elsewhere
-// surfaces as a black canvas rather than an error: run `npm run
-// check:contract` after every change here.
+// playerKeys, teams. The ninth, `spectatorTeam`, is required of every game
+// EXCEPT one that declares `noSpectators` (see teams below), which is checked
+// instead for holding exactly one team. Everything else is read lazily, which
+// is why a typo elsewhere surfaces as a black canvas rather than an error: run
+// `npm run check:contract` after every change here.
 //
 // ***** THE ONE STRUCTURAL DECISION IN THIS FILE *****
 //
@@ -28,10 +29,10 @@ import maps from '../data/maps/index.js';
 //     is private to `_startRound()` — so a game where death is routine has to
 //     own its own respawn;
 //   * therefore the engine never writes `score`/`deaths` either, which leaves
-//     the playing columns of the stat table free for the three numbers this
-//     game actually ranks by — crystals eaten, snakes killed and the score
-//     that adds them up. `src/host/StatBridge.js` writes them, reached from
-//     `onCoreEvent` through `src/host/createModules.js`.
+//     the playing columns of the stat table free for the one number this
+//     game actually ranks by — the score, crystals eaten plus a flat bonus per
+//     kill. `src/host/StatBridge.js` writes it (and the rank next to it),
+//     reached from `onCoreEvent` through `src/host/createModules.js`.
 export default {
   title: 'Vimp Snakes',
 
@@ -68,9 +69,9 @@ export default {
     death: null,
   },
 
-  // the vote a player is offered right after their first frame: without it a
-  // joining participant stays a spectator with no way to ask to play
-  initialVote: 'teamChange',
+  // No `initialVote`: there is no vote to offer. A joining player is already
+  // in the only team there is (see `noSpectators` below), so the engine hands
+  // them a snake instead of a question.
 
   maps,
   currentMap: 'arena',
@@ -84,9 +85,9 @@ export default {
   // here, not just the two that change.
   //
   // roundTime and mapTime are pinned at roomTimeMax (1 hour), the ceiling the
-  // host clamps to. Together with never reporting a kill that is what "the
-  // round lasts forever" means in practice: the round timer expiring does not
-  // end a round with a result, it just restarts one.
+  // host clamps to. With `endlessRound` the round timer expiring now does
+  // nothing at all rather than restarting the round, but the hour stays: the
+  // panel's time cell counts down off it, and mapTime still owns the map.
   timers: {
     // leave alone: the CORE's step is read from the engine hostDefaults, not
     // from here, so changing this desyncs the Worker loop from the physics
@@ -114,14 +115,24 @@ export default {
     defaultState: { best: 0, eaten: 0 },
   },
 
-  // One playing team: everyone is a snake, there is a single stat table and
-  // nothing to be on the other side of. `spectators` is still required — the
-  // engine parks joiners there until they answer `initialVote`, and it is
-  // where the dead sit if anything ever does report a kill.
-  spectatorTeam: 'spectators',
+  // One team: everyone is a snake, there is a single stat table and nothing to
+  // be on the other side of. `noSpectators` is the engine flag that makes that
+  // literal — no spectator team, no `spectatorTeam` key, no vote on the way
+  // in: `ParticipantManager.createHuman` puts the player straight into
+  // `players` and `RoundManager.admitPlayer` gives them a snake as soon as
+  // their first frame is acknowledged. Without it every joiner sat in the stat
+  // table as a spectator row until they answered a vote.
+  noSpectators: true,
+
+  // The second engine flag, and deliberately a separate one: it silences every
+  // round restart the engine starts by itself. The one that matters here is
+  // "fewer than two active humans -> stat.reset() + new round", which wiped the
+  // scoreboard for everyone whenever the room emptied to a single player; the
+  // round timer below and the team wipe are covered by the same flag.
+  endlessRound: true,
+
   teams: {
     players: 1,
-    spectators: 2,
   },
 
   // bots: the name prefix the engine numbers, and the model they spawn with
@@ -149,20 +160,17 @@ export default {
   // The key 't' is reserved by the engine for the round time — never declare
   // it here, and always declare a type: 'time' cell for it on the client.
   //
-  // Four numbers, and only three of them mean the same thing to a player:
-  // `crystals` is what the snake CARRIES (a crash empties it, the boost burns
-  // it, the core writes it), while `eaten`, `kills` and `score` accumulate for
-  // the whole visit and survive death. `src/host/StatBridge.js` is their only
-  // writer — see the note there for how a kill moves the victim's score over.
+  // Three numbers, and only one of them is shown: `score` accumulates for the
+  // whole visit and survives death, while `crystals` (what the snake CARRIES —
+  // a crash empties it, the boost burns it, the core writes it) and `dead` are
+  // data the client reads rather than displays. They stay declared because
+  // invariant 6 (panelContract) makes the client name every host field.
+  // `src/host/StatBridge.js` is the only writer of `score`.
   panel: {
     fields: {
       // carried right now: the geometry of the snake and the fuel of the boost
       crystals: { key: 'c', value: 0 },
-      // crystals swallowed over the whole visit, never decremented
-      eaten: { key: 'e', value: 0 },
-      // snakes that crashed into this one
-      kills: { key: 'k', value: 0 },
-      // eaten + the whole score of everyone this snake killed
+      // crystals eaten over the whole visit plus a flat bonus per kill
       score: { key: 's', value: 0 },
       // 0 while alive; otherwise "crystals + 1", which is how the client tells
       // "dead with zero crystals" from "alive" through a channel whose values
@@ -181,17 +189,20 @@ export default {
   //
   // Two columns are the engine's and must keep their names: `name` (nickname)
   // and `latency` (ping). `status` is the engine's too — RoundManager writes
-  // 'dead' and '' into it on team changes — so the column stays even though
+  // '' into it when a player is admitted — so the column stays even though
   // this game never reports a death.
   //
-  // The three playing columns are written by THIS GAME, not by the engine (see
-  // the note at the top of the file), and all three carry bodyMethod '='
-  // (replace) rather than '+' (accumulate): `src/host/StatBridge.js` keeps the
-  // running totals itself and reports the result, so a re-sent value is
-  // harmless and a dropped one self-heals on the next event.
+  // The two playing columns — `rank` and `score` — are written by THIS GAME,
+  // not by the engine (see the note at the top of the file), and both carry
+  // bodyMethod '=' (replace) rather than '+' (accumulate):
+  // `src/host/StatBridge.js` keeps the running totals itself and reports the
+  // result, so a re-sent value is harmless and a dropped one self-heals on the
+  // next event. `rank` has no `headMethod`: a sum of ranks in the header means
+  // nothing, so the aggregate is left empty as it is for `status`/`latency`.
   //
-  // `deaths` is gone on purpose: the engine never fills it here, and a crash
-  // counter next to three counters that only ever grow reads as noise.
+  // `deaths`, `eaten` and `kills` are gone on purpose: the engine never fills
+  // `deaths` here, and the other two are inputs to the score rather than
+  // numbers a player reads — StatBridge still counts them internally.
   stat: {
     name: {
       key: 0,
@@ -205,29 +216,20 @@ export default {
       bodyValue: '',
       headValue: '',
     },
-    eaten: {
+    rank: {
       key: 2,
       bodyMethod: '=',
       bodyValue: 0,
-      headMethod: '+',
-      headValue: 0,
     },
-    kills: {
+    score: {
       key: 3,
       bodyMethod: '=',
       bodyValue: 0,
       headMethod: '+',
       headValue: 0,
     },
-    score: {
-      key: 4,
-      bodyMethod: '=',
-      bodyValue: 0,
-      headMethod: '+',
-      headValue: 0,
-    },
     latency: {
-      key: 5,
+      key: 4,
       bodyMethod: '=',
     },
   },
