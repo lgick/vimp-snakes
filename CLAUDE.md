@@ -61,7 +61,9 @@ score. The edge and other snakes' bodies kill; your own tail does not.
 - `ENGINE_API_VERSION` is always imported from
   `vimp-engine/config/opcodes.js`, never written as a literal.
 - `PLAYER_STATE_LEN = 8` — `[x, y, cos, sin, crystals, length, alive, grace]`;
-  the last slot is the spawn grace, and the predictor freezes on it.
+  the last slot is the SECONDS of spawn grace left, and the predictor freezes
+  while it burns them down in step with the host (a flag there would keep the
+  replica frozen a round trip past the moment the host resumed).
 - `SPINE_POINTS = 16` — the resampled body carried per snake row. Declared in
   `src/config/snapshot.js`, `core/src/motion.rs` and
   `src/client/parts/Snake.js`; `tests/config/contract.test.js` compares them.

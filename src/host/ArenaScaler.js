@@ -17,8 +17,8 @@ import { arenaSizeFor, buildArena, PLAYER_STEP } from '../data/maps/arena.js';
 // snake off the canvas. Nothing about a resize should cost a player their
 // score.
 //
-// What a resize actually needs is exactly two messages, and the plugin holds
-// both ends:
+// What a resize actually needs is exactly three messages, and the plugin holds
+// every end:
 //
 //   * `coreAdapter.createMap(mapData)` -> `GameCore.load_map`, which swaps
 //     `ctx.map` and touches no actor. `core/src/game.rs` rebuilds `Arena` from
@@ -26,7 +26,13 @@ import { arenaSizeFor, buildArena, PLAYER_STEP } from '../data/maps/arena.js';
 //   * `socketManager.sendMap(socketId, mapData)` -> MAP_DATA, which on the
 //     client destroys the parts of this `setId`, rebuilds them from the
 //     payload and re-runs `clientCore.set_map`. The client half derives the
-//     ring from the same grid, so it needs no other channel and no new field.
+//     ring from the same grid, so it needs no other channel and no new field;
+//   * `vimp.overrideMapData(mapData)` -> `RoundManager._scaledMapData`, which
+//     is the table of respawn points the engine hands out at the start of a
+//     round. It is the ROOM's map — the base size — and the engine has no
+//     other way to learn about a map the game swapped underneath it, so
+//     without this a round restart (`/bot`, `/nr`) places everyone on the
+//     geometry of a disc that no longer exists.
 //
 // The client answers MAP_DATA with MAP_READY, and the engine's `mapReady`
 // handler is a no-op for a player who is already loaded on this map name —
@@ -57,6 +63,11 @@ export default class ArenaScaler {
     this._socketManager = socketManager;
     this._scriptedManager = scriptedManager;
 
+    // the engine facade, learnt from the first core event that carries it:
+    // `createModules` is not given one (its context is participants and the
+    // meta modules), while `onCoreEvent` is
+    this._vimp = null;
+
     // population the current arena was built for, and the size it came out as
     this._population = null;
     this._size = null;
@@ -71,7 +82,11 @@ export default class ArenaScaler {
 
   // `data` is the payload of a CoreEvent::Custom. Everything that is not a
   // population report belongs to another bridge.
-  onCoreEvent(data) {
+  onCoreEvent(data, ctx = {}) {
+    if (ctx.vimp) {
+      this._vimp = ctx.vimp;
+    }
+
     if (!data || data.type !== 'population') {
       return;
     }
@@ -97,6 +112,10 @@ export default class ArenaScaler {
       // the bot manager hands out respawn points off the map it was last
       // given; the old points belong to the old disc
       this._scriptedManager?.createMap(mapData);
+
+      // and the engine, whose own copy is the map the ROOM was loaded with:
+      // it is what `_startRound` hands out respawn points from
+      this._vimp?.overrideMapData?.(mapData);
 
       this._mapData = mapData;
       this._delivered.clear();
@@ -154,29 +173,30 @@ export default class ArenaScaler {
     }
   }
 
-  // Re-sends the map in force to the core and to every client, without
-  // touching the hysteresis.
+  // Puts the map in force back in front of everyone who could have been given
+  // a stale one, without touching the hysteresis.
   //
-  // The engine's `RoundManager._startRound` hands the core `this._scaledMapData`
-  // — the map the ROOM was loaded with, which is the base size and not the one
-  // this class put in force. Anything that restarts the round therefore silently
-  // reverts the arena to twenty cells, and the snakes it respawns are packed
-  // into the middle of a disc that is about to grow back around them. `/bot N`
-  // is the one path in this game that restarts a round (src/host/botCommand.js),
-  // so it calls this immediately afterwards.
+  // `RoundManager._startRound` reloads the core with its own `_scaledMapData`.
+  // `_apply` keeps that copy up to date through `vimp.overrideMapData`, so the
+  // geometry the engine reloads is already the right one — but the reload
+  // happens all the same, and it is cheaper to re-send the map after a round
+  // restart than to reason about which half of the engine reloaded what.
+  // `/bot N` is the one path in this game that restarts a round
+  // (src/host/botCommand.js), so it calls this immediately afterwards.
   //
   // `_size` and `_population` are deliberately left alone: nothing about the
-  // crowd changed, only what the core happens to be holding.
+  // crowd changed, only what the engine and the core happen to be holding.
   reapply() {
     if (!this._mapData) {
       return;
     }
 
+    this._vimp?.overrideMapData?.(this._mapData);
     this._coreAdapter.createMap(this._mapData);
     this._scriptedManager?.createMap(this._mapData);
 
-    // every client has to be told again: the engine's round restart re-sent
-    // them the base map too
+    // a client that joined between two resizes holds the catalog map; the
+    // bookkeeping is cleared so the broadcast below reaches everyone
     this._delivered.clear();
     this._broadcast();
   }

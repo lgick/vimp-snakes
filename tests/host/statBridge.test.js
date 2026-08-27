@@ -22,6 +22,7 @@ function participantsFor(ids) {
   return {
     map: people,
     get: gameId => people.get(gameId) ?? null,
+    getAll: () => [...people.values()],
   };
 }
 
@@ -262,5 +263,53 @@ describe('StatBridge', () => {
     expect(() => bridge.onCoreEvent({ type: 'nothing', id: 3 })).not.toThrow();
     expect(() => bridge.onCoreEvent(null)).not.toThrow();
     expect(stat.updateUser).not.toHaveBeenCalled();
+  });
+
+  // a population report is the only hook this bridge gets when a participant
+  // APPEARS: until a row is written it shows the column's bodyValue, a flat
+  // zero, however high the rank the master returned
+  describe('newcomers', () => {
+    it('writes the row of a participant nobody has scored for yet', () => {
+      const vimp = { getPlayerRank: vi.fn(() => 120) };
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 120 });
+      expect(statOf(stat, '7')).toEqual({ score: 0, rank: 120 });
+    });
+
+    it('writes it once and leaves the row to the events after that', () => {
+      const vimp = { getPlayerRank: vi.fn(() => 1) };
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+      stat.updateUser.mockClear();
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(stat.updateUser).not.toHaveBeenCalled();
+    });
+
+    it('publishes a row again when the id changes hands', () => {
+      const vimp = { getPlayerRank: vi.fn(() => 5) };
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      // the engine builds a fresh Participant per join: same id, new player
+      participants.map.set('3', { gameId: '3', teamId: TEAM_ID });
+      stat.updateUser.mockClear();
+
+      bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp, panel });
+
+      expect(statOf(stat, '3')).toEqual({ score: 0, rank: 5 });
+      expect(statOf(stat, '7')).toBe(null);
+    });
+
+    it('survives an engine without the rank getters', () => {
+      expect(() =>
+        bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel }),
+      ).not.toThrow();
+
+      expect(statOf(stat, '3')).toEqual({ score: 0 });
+    });
   });
 });

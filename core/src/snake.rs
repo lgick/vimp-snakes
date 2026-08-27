@@ -307,16 +307,18 @@ impl Snake {
     /// The eight floats the per-user player block carries, plus the
     /// `centering` flag (unused here).
     ///
-    /// The last slot used to be a hard zero and now carries the spawn grace:
-    /// the predictor has to freeze exactly when the host does, or the local
-    /// snake drives off on its own for the two seconds it is meant to stand
-    /// still.
+    /// The last slot used to be a hard zero and now carries the spawn grace —
+    /// the SECONDS left of it, not a flag: the predictor has to freeze exactly
+    /// when the host does, or the local snake drives off on its own for the
+    /// two seconds it is meant to stand still. A flag would only say «frozen
+    /// as of this frame», and the replica would stay frozen a whole round trip
+    /// past the moment the authority started moving, then be yanked forward.
     ///
     /// Layout — positional, and mirrored by `Predictor::to_array` and by the
     /// scenario `divergence.thresholds`:
     ///
     /// ```text
-    /// [x, y, cos(angle), sin(angle), crystals, length, alive, grace]
+    /// [x, y, cos(angle), sin(angle), crystals, length, alive, graceLeft]
     /// ```
     ///
     /// Components 0 and 1 are world x/y, which is the contract level-0 drift
@@ -344,7 +346,7 @@ impl Snake {
                 self.crystals as f32,
                 self.target_length(model),
                 self.alive as u8 as f32,
-                self.in_grace() as u8 as f32,
+                self.spawn_grace.max(0.0),
             ],
             false,
         )
@@ -452,13 +454,21 @@ mod tests {
     }
 
     #[test]
-    fn the_prediction_block_carries_the_grace_in_the_last_slot() {
+    fn the_prediction_block_carries_the_grace_left_in_the_last_slot() {
         let model = model();
         let mut snake = snake_in_grace(2.0);
 
         let (state, _) = snake.prediction_state(&model);
 
-        assert_eq!(state[7], 1.0);
+        // the seconds left, not a flag: the predictor counts them down itself
+        // instead of waiting for a frame to tell it the grace is over
+        assert_eq!(state[7], 2.0);
+
+        snake.tick_grace(0.5);
+
+        let (state, _) = snake.prediction_state(&model);
+
+        assert!((state[7] - 1.5).abs() < 1e-6, "{}", state[7]);
 
         snake.tick_grace(2.0);
 

@@ -78,6 +78,6 @@ export default {
   // `createModules` and is held there.
   onCoreEvent(data, ctx = {}) {
     getStatBridge()?.onCoreEvent(data, ctx);
-    getArenaScaler()?.onCoreEvent(data);
+    getArenaScaler()?.onCoreEvent(data, ctx);
   },
 };

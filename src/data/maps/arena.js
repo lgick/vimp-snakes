@@ -97,7 +97,19 @@ export function arenaSizeFor(count) {
 // every prefix samples the whole range of radii: 0, 32, 16, 48, … Because the
 // point set is untouched, the pairwise clearance the spiral already had (178
 // units at the base size) is untouched with it.
-const RESPAWN_BITS = Math.round(Math.log2(RESPAWN_COUNT));
+const RESPAWN_BITS = Math.log2(RESPAWN_COUNT);
+
+// The permutation is only a permutation while the count is a power of two:
+// with 48 points `reverseBits` would return indices up to 63, pushing some
+// points past RESPAWN_SPAN and handing out others twice — duplicate respawn
+// points, and not one error to show for it. The map is built once at import
+// time, so this throws where it can still be read.
+if (!Number.isInteger(RESPAWN_BITS)) {
+  throw new Error(
+    `RESPAWN_COUNT must be a power of two (the order is bit-reversed), ` +
+      `got ${RESPAWN_COUNT}`,
+  );
+}
 
 function reverseBits(i) {
   let out = 0;

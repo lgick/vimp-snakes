@@ -20,9 +20,10 @@ await startStandaloneGame({
   assetsBase: '/build/',
   playerName: localStorage.getItem('vimp_dev_nick') || 'Player',
   playerModel: 's1',
-  // leave the spectators first and only then ask for bots: the chat command
-  // is rejected for a spectator, and a joining participant is one
-  startupVotes: [['teamChange', 'players']],
+  // no startupVotes: this game declares `noSpectators`, so the player is in
+  // the only team there is from the moment they connect and there is nothing
+  // to answer. `['teamChange', 'players']` would only print «this is your
+  // current team» into the chat on every launch
   startupCommands: ['/bot 3'],
   devMode: true,
 });

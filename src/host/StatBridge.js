@@ -90,6 +90,15 @@ export default class StatBridge {
         this._onDeath(gameId, data, vimp, panel);
         break;
 
+      // the core reports the crowd on every join and leave
+      // (`src/host/ArenaScaler.js` resizes the arena off it). It is also the
+      // only hook this bridge gets that fires when a participant APPEARS, and
+      // a row nobody has written yet shows the column's `bodyValue` — a flat
+      // zero — however high the rank the master returned for them
+      case 'population':
+        this._publishNewcomers(vimp, panel);
+        break;
+
       // 'respawn' is deliberately not here: none of the three counters is
       // touched by a new life, that is the whole point of keeping them
       default:
@@ -180,11 +189,31 @@ export default class StatBridge {
       score: 0,
       // how much of `eaten` has already gone into the saved profile
       flushedEaten: 0,
+      // whether the stat row has ever been written for this participant
+      published: false,
     };
 
     this._totals.set(gameId, fresh);
 
     return fresh;
+  }
+
+  // Writes the row of every participant whose row has never been written.
+  //
+  // Only the first time: after that the row is owned by the events, and
+  // rewriting it here would cost a stat message per join for everyone in the
+  // room. `PlayerDataSync.load` is asynchronous, so a rank may still be
+  // missing at this point — `_publish` skips it then, and the player's first
+  // crystal fills the cell in.
+  _publishNewcomers(vimp, panel) {
+    for (const participant of this._participants.getAll()) {
+      const gameId = participant.gameId;
+      const record = this._record(gameId);
+
+      if (record && !record.published) {
+        this._publish(gameId, record, vimp, panel);
+      }
+    }
   }
 
   // Both readers of the counters at once: the panel is the player's own HUD,
@@ -209,6 +238,8 @@ export default class StatBridge {
     if (rank !== undefined && rank !== null) {
       columns.rank = rank;
     }
+
+    record.published = true;
 
     this._stat.updateUser(gameId, record.participant.teamId, columns);
 

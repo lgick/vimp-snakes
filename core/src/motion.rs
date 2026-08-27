@@ -318,6 +318,20 @@ impl BodyPath {
         false
     }
 
+    /// Distance from `point` to the nearest node of the body, or infinity for
+    /// an empty path. Node-based for the same reason `touches` is.
+    pub fn distance_to(&self, point: [f32; 2]) -> f32 {
+        self.nodes
+            .iter()
+            .map(|node| {
+                let dx = node[0] - point[0];
+                let dy = node[1] - point[1];
+
+                (dx * dx + dy * dy).sqrt()
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
+
     /// Evenly spaced positions along the body — where a dead snake leaves its
     /// crystals. Returns at most `count` points, head first.
     pub fn sample_along(&self, count: usize) -> Vec<[f32; 2]> {
@@ -373,7 +387,10 @@ mod tests {
             ..MoveInput::default()
         };
 
-        assert_eq!(step_angle([0.0, 0.0], 0.5, input, model.turn_speed, 1.0 / 120.0), 0.5);
+        assert_eq!(
+            step_angle([0.0, 0.0], 0.5, input, model.turn_speed, 1.0 / 120.0),
+            0.5
+        );
     }
 
     #[test]
@@ -416,7 +433,10 @@ mod tests {
             ..MoveInput::default()
         };
 
-        assert_eq!(step_angle([0.0, 0.0], 0.7, input, model.turn_speed, 1.0 / 120.0), 0.7);
+        assert_eq!(
+            step_angle([0.0, 0.0], 0.7, input, model.turn_speed, 1.0 / 120.0),
+            0.7
+        );
     }
 
     #[test]

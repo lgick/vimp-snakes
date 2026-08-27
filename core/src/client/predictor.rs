@@ -33,7 +33,7 @@ const ERROR_SNAP_DISTANCE: f32 = 100.0;
 const MAX_ACCUMULATED_TIME: f64 = 100.0;
 
 /// Predicted state of the local snake, in the player-block layout
-/// `[x, y, cos(angle), sin(angle), crystals, length, alive, grace]` — the same
+/// `[x, y, cos(angle), sin(angle), crystals, length, alive, graceLeft]` — the same
 /// order `Snake::prediction_state` packs, and the reason for the trigonometry
 /// is documented there.
 ///
@@ -48,10 +48,13 @@ pub struct SnakeState {
     pub crystals: f32,
     pub length: f32,
     pub alive: bool,
-    /// The host is holding this snake still for its spawn grace
-    /// (`Snake::in_grace`). Replaying movement through it is exactly the drift
-    /// the parity suite exists to catch, so `step` returns early on it.
-    pub grace: bool,
+    /// Seconds left of the spawn grace the host is holding this snake still
+    /// for (`Snake::spawn_grace`). Replaying movement through it is exactly
+    /// the drift the parity suite exists to catch, so `step` burns it down and
+    /// returns early while it lasts — the same arithmetic the host does, which
+    /// is why the replica starts moving on the same tick and not a round trip
+    /// later.
+    pub grace: f32,
 }
 
 impl SnakeState {
@@ -63,7 +66,7 @@ impl SnakeState {
             crystals: s[4],
             length: s[5],
             alive: s[6] > 0.5,
-            grace: s[7] > 0.5,
+            grace: s[7].max(0.0),
         }
     }
 
@@ -76,7 +79,7 @@ impl SnakeState {
             self.crystals,
             self.length,
             self.alive as u8 as f32,
-            self.grace as u8 as f32,
+            self.grace,
         ]
     }
 }
@@ -401,7 +404,7 @@ impl Predictor {
             return false;
         };
 
-        !self.state.grace
+        self.state.grace <= 0.0
             && (self.input.keys & self.boost_bit != 0 || self.input.pointer_boost)
             && self.state.crystals as u32 > model.boost_min_crystals
     }
@@ -436,13 +439,17 @@ impl Predictor {
             self.path.reset(self.state.x, self.state.y);
         }
 
+        let dt = (self.step_ms / 1000.0) as f32;
+
         // frozen by the host: the authoritative snake does not move for the
-        // whole grace, so neither may the replica
-        if self.state.grace {
+        // whole grace, so neither may the replica. The countdown mirrors
+        // `Snake::tick_grace` step for step, so both halves start moving on
+        // the same tick
+        if self.state.grace > 0.0 {
+            self.state.grace = (self.state.grace - dt).max(0.0);
+
             return;
         }
-
-        let dt = (self.step_ms / 1000.0) as f32;
 
         let move_input = MoveInput {
             left: input.keys & self.left_bit != 0,
@@ -462,13 +469,7 @@ impl Predictor {
         self.state.angle = motion::step_angle(head, self.state.angle, move_input, max_turn, dt);
 
         let speed = motion::speed_of(move_input, can_boost, model);
-        let head = motion::advance_head(
-            self.state.x,
-            self.state.y,
-            self.state.angle,
-            speed,
-            dt,
-        );
+        let head = motion::advance_head(self.state.x, self.state.y, self.state.angle, speed, dt);
 
         self.state.x = head[0];
         self.state.y = head[1];
@@ -777,8 +778,7 @@ mod parity {
 
     #[test]
     fn releasing_the_pointer_stays_in_step() {
-        let (core, replica) =
-            simulate_aim(240, &[(0, 1000.0, 1700.0, 1), (60, 1000.0, 1700.0, 0)]);
+        let (core, replica) = simulate_aim(240, &[(0, 1000.0, 1700.0, 1), (60, 1000.0, 1700.0, 0)]);
 
         expect_close(core, replica, 0.5);
     }
@@ -810,8 +810,7 @@ mod parity {
         // both halves agree the boost is allowed for the whole run
         let json = config_json_with(200, 2);
         let cfg: SnakesConfig = serde_json::from_value(json.clone()).unwrap();
-        let engine: vimp_engine_core::config::EngineConfig =
-            serde_json::from_value(json).unwrap();
+        let engine: vimp_engine_core::config::EngineConfig = serde_json::from_value(json).unwrap();
 
         let mut game = GameState::new(engine, &cfg);
 
@@ -862,8 +861,7 @@ mod parity {
         json["models"]["s1"]["world"]["spawnGraceSeconds"] = serde_json::json!(2.0);
 
         let cfg: SnakesConfig = serde_json::from_value(json.clone()).unwrap();
-        let engine: vimp_engine_core::config::EngineConfig =
-            serde_json::from_value(json).unwrap();
+        let engine: vimp_engine_core::config::EngineConfig = serde_json::from_value(json).unwrap();
 
         let mut game = GameState::new(engine, &cfg);
 
@@ -888,13 +886,13 @@ mod parity {
         assert_eq!(core, [1280.0, 1280.0], "the host moved during the grace");
         expect_close(core, (render.x, render.y), 0.001);
 
-        // …and once it runs out, the two resume together. The grace is burned
-        // down INSIDE a step, so the frame of the last frozen step still
-        // carries it — exactly as it does over the wire; the frame taken here
-        // is the first one that does not
+        // …and once it runs out, the two resume together. Slot 7 carries the
+        // SECONDS left, burned down inside a step, so the frame of the last
+        // frozen step still carries a remainder — exactly as it does over the
+        // wire; the frame taken here is the first one at zero
         let mut frames = 0;
 
-        while game.prediction_state(1).unwrap().0[7] > 0.5 {
+        while game.prediction_state(1).unwrap().0[7] > 0.0 {
             game.step(DT);
             predictor.step(InputSnapshot::default());
             frames += 1;
@@ -920,6 +918,58 @@ mod parity {
 
         assert!(core[0] > 1480.0, "the host never resumed: {core:?}");
         expect_close(core, (render.x, render.y), 0.5);
+    }
+
+    #[test]
+    fn the_replica_leaves_the_grace_on_the_same_tick_as_the_host() {
+        // the reason slot 7 carries seconds and not a flag. With a flag the
+        // replica would know only «frozen as of the last frame» and would sit
+        // still until a fresher one arrived — a whole round trip of dead
+        // controls, ended by a jump. Here ONE frame is delivered, at the start
+        // of the grace, and nothing after it
+        let mut json = config_json();
+
+        json["models"]["s1"]["world"]["spawnGraceSeconds"] = serde_json::json!(2.0);
+
+        let cfg: SnakesConfig = serde_json::from_value(json.clone()).unwrap();
+        let engine: vimp_engine_core::config::EngineConfig = serde_json::from_value(json).unwrap();
+
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(MAP_JSON).unwrap();
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let mut predictor = Predictor::new(STEP_MS, &cfg.player_keys, &cfg.models);
+
+        predictor.set_model("s1");
+        predictor.set_active(true);
+        predictor.on_server_state(game.prediction_state(1).unwrap().0, 0.0, 0.0, 0.0);
+
+        let mut host_moved_at = None;
+        let mut replica_moved_at = None;
+
+        for tick in 0..400i32 {
+            game.step(DT);
+            predictor.step(InputSnapshot::default());
+
+            if host_moved_at.is_none() && game.actor_position(1).unwrap()[0] > 1280.5 {
+                host_moved_at = Some(tick);
+            }
+
+            let render = predictor.render_state().unwrap();
+
+            if replica_moved_at.is_none() && render.x > 1280.5 {
+                replica_moved_at = Some(tick);
+            }
+        }
+
+        let host = host_moved_at.expect("the host never resumed");
+        let replica = replica_moved_at.expect("the replica never resumed");
+
+        assert!(
+            host.abs_diff(replica) <= 1,
+            "host resumed at {host}, replica at {replica}"
+        );
     }
 
     #[test]

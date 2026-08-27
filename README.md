@@ -29,15 +29,25 @@ Three ways it ends and only one of them is your fault:
   were carrying scatters over the map where you died;
 - your head touches **your own** tail — nothing happens, it passes over.
 
-Three numbers follow you, and none of them is reset by a crash: **eaten**
-(crystals swallowed), **kills** (snakes that ran into you) and **score**, which
-is the crystals you ate plus the entire score of everyone you killed. Killing
-the leader is worth the double: you take their whole score, and their crystals
-scatter on the map on top of it. The HUD shows all three; what you are carrying
-right now is told by the size of your snake.
+One number follows you and a crash does not reset it: **score** — the crystals
+you have eaten plus a flat **15** per snake that ran into you. The victim keeps
+its own score; what it was carrying scatters on the map for whoever gets there
+first, so killing the leader is still worth it, just not twice. The HUD shows
+the score alone; what you are carrying right now is told by the size of your
+snake. A kill is also worth a point of **rank**, the number `/rank` reports and
+the one that survives the session.
+
+The first two seconds of a life are yours: a fresh snake stands still and
+blinks, kills nobody and cannot be killed. Long enough to read the arena, and
+long enough for whoever was flying at that spot to steer around you.
+
+The heavier you get the wider you steer: 3.4 rad/s empty, falling with the
+square root of the crystals down to a floor of 1.4. A leader stays steerable
+and stops being nimble — the fastest snake in the arena is a small one.
 
 The stat table (`Tab`) is a single leaderboard ranked by score, ties broken by
-crystals eaten. Everyone is a player; there are no teams.
+rank. Everyone is a player: there are no teams, no spectators and nothing to
+vote on.
 
 ## Run it
 

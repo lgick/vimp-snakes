@@ -32,9 +32,9 @@ use vimp_engine_core::snapshot::Block;
 
 use crate::arena::Arena;
 use crate::config::{
-    KeyConfig, SnakeConfig, SnakesConfig, WorldConfig, PANEL_CRYSTALS, PANEL_DEAD,
+    KeyConfig, PANEL_CRYSTALS, PANEL_DEAD, SnakeConfig, SnakesConfig, WorldConfig,
 };
-use crate::crystals::{roll_tier, CrystalField};
+use crate::crystals::{CrystalField, roll_tier};
 use crate::motion::SPINE_LEN;
 use crate::snake::{KeyBits, Snake};
 
@@ -47,7 +47,11 @@ const MODE_BOOST: &str = "BOOST";
 const DEATH_DROP_SPOTS: usize = 24;
 
 /// Tries a core-side respawn makes at finding a spot clear of other snakes
-/// before falling back to a map respawn point.
+/// before falling back to a map respawn point. A budget of random throws —
+/// the deterministic walk of `find_spawn_from` is bounded by the number of
+/// slots instead, and must not borrow this number: stopping a full-coverage
+/// walk a third of the way in means returning an OCCUPIED point while a free
+/// one is still on the list.
 const RESPAWN_ATTEMPTS: usize = 24;
 
 /// Clearance a respawn keeps from every existing body, in world units.
@@ -56,25 +60,20 @@ const RESPAWN_CLEARANCE: f32 = 140.0;
 /// How far ahead a bot looks when deciding whether it is about to die.
 const BOT_LOOKAHEAD: f32 = 220.0;
 
-/// The spiral `find_spawn_from` walks: the same sunflower the map's respawn
-/// points are built on (`src/data/maps/arena.js`), so the two agree on what a
-/// well-spread arena looks like. A power of two — the walk is bit-reversed.
-const SPAWN_SLOTS: u32 = 64;
-const SPAWN_SLOT_BITS: u32 = 6;
-
-/// Fraction of the radius the outermost candidate reaches; `RESPAWN_SPAN` in
-/// `src/data/maps/arena.js`.
-const RESPAWN_SPAN: f32 = 0.72;
-
-/// pi * (3 - sqrt 5)
-const GOLDEN_ANGLE: f32 = 2.399_963_2;
-
-/// Reverses the low `SPAWN_SLOT_BITS` bits of `i`, turning a counter into the
-/// van der Corput sequence: every prefix of the walk samples the whole disc.
-fn reverse_bits(i: u32) -> u32 {
+/// Reverses the low `bits` bits of `i`, turning a counter into the van der
+/// Corput sequence: every prefix of the walk samples the whole range.
+///
+/// The candidates it reorders are the map's OWN respawn points
+/// (`SnakesSim::spawn_slots`), not a spiral of the core's own making — the
+/// geometry lives in `src/data/maps/arena.js` and is written into the map, so
+/// duplicating the formula here could only mean the two drifting apart. The
+/// order matters for the same reason it matters there: the plain index order
+/// of a sunflower crawls outwards from the middle, while the bit-reversed one
+/// covers the whole disc from the very first candidates.
+fn reverse_bits(i: usize, bits: u32) -> usize {
     let mut out = 0;
 
-    for bit in 0..SPAWN_SLOT_BITS {
+    for bit in 0..bits {
         out = (out << 1) | ((i >> bit) & 1);
     }
 
@@ -153,6 +152,10 @@ pub struct SnakesSim {
     /// `snakes` including a handoff restore. `usize::MAX` means "nothing
     /// reported yet" and forces the next step to report.
     population: usize,
+    /// The map's respawn points, as the engine last sent them. Kept because
+    /// `spawn_actor` has to search for a free spot and the map is only
+    /// handed in on the fixed step.
+    spawn_slots: Vec<[f32; 3]>,
     field: CrystalField,
     snakes: IndexMap<u32, Snake>,
     bots: IndexMap<u32, Bot>,
@@ -220,9 +223,17 @@ impl SnakesSim {
     /// Is there room for a snake at `point` — no living body within
     /// `RESPAWN_CLEARANCE` of it?
     fn is_clear(&self, point: [f32; 2]) -> bool {
-        self.snakes
-            .values()
-            .all(|other| !other.alive || !other.path.touches(point, RESPAWN_CLEARANCE, 0))
+        self.is_clear_except(point, None)
+    }
+
+    /// The same, ignoring one snake. `reset_actor` respawns a snake that is
+    /// still alive and still dragging its old body: counting that body would
+    /// move the player away from a spot nobody else is anywhere near, and a
+    /// long enough snake could block the search outright.
+    fn is_clear_except(&self, point: [f32; 2], skip: Option<u32>) -> bool {
+        self.snakes.iter().all(|(id, other)| {
+            Some(*id) == skip || !other.alive || !other.path.touches(point, RESPAWN_CLEARANCE, 0)
+        })
     }
 
     /// `point` with a heading straight at the arena centre: a fresh snake must
@@ -255,42 +266,121 @@ impl SnakesSim {
     /// The same search without an `Rng`, for the one path that has none: the
     /// engine's `spawn_actor`, whose signature it dictates.
     ///
-    /// The engine hands out the map's respawn points strictly by index and has
-    /// no idea which of them are occupied — `RoundManager.changeTeam` derives
-    /// the index from the team SIZE, so a series of joins and leaves lands two
-    /// players on one point. So the requested spot is honoured when it is free
-    /// and searched around when it is not.
+    /// The engine hands out the map's respawn points by index and cannot know
+    /// which of them are occupied — a series of joins and leaves, or two
+    /// players entering on the same tick, lands two snakes on one point. So
+    /// the requested spot is honoured when it is free and searched around when
+    /// it is not.
     ///
-    /// The candidates are the sunflower spiral of `src/data/maps/arena.js`,
-    /// walked in bit-reversed order for the same reason as there: any prefix of
-    /// that order covers the whole disc, while the plain order crawls outwards
-    /// from the middle. The walk starts at `seed` (the game id), so two snakes
+    /// The candidates are the map's own respawn points, walked in bit-reversed
+    /// order (`reverse_bits`) starting at `seed` (the game id), so two snakes
     /// spawning on the same tick do not try the same spots in the same order.
-    fn find_spawn_from(&self, seed: u32, requested: [f32; 3]) -> [f32; 3] {
+    /// EVERY slot is tried before giving up: this walk is deterministic and
+    /// finite, and stopping early would return an occupied point while a free
+    /// one was still on the list.
+    ///
+    /// `skip` is the snake being respawned, if it already exists (see
+    /// `is_clear_except`).
+    fn find_spawn_from(&self, seed: u32, requested: [f32; 3], skip: Option<u32>) -> [f32; 3] {
+        let slots = self.spawn_slots.len();
+
         // no disc yet — `Arena` is rebuilt from `ctx.map` on the fixed step and
         // there has not been one. There is nothing to search, so the engine's
         // point stands, exactly as it did before this search existed.
-        if self.arena.radius <= 0.0 || self.is_clear([requested[0], requested[1]]) {
+        if self.arena.radius <= 0.0 || self.is_clear_except([requested[0], requested[1]], skip) {
             return requested;
         }
 
-        let limit = (self.arena.radius - self.world.edge_margin).max(0.0) * RESPAWN_SPAN;
+        let seed = seed as usize;
 
-        for attempt in 0..RESPAWN_ATTEMPTS as u32 {
-            let k = reverse_bits(seed.wrapping_add(attempt) % SPAWN_SLOTS);
-            let r = limit * ((k as f32 + 0.5) / SPAWN_SLOTS as f32).sqrt();
-            let theta = k as f32 * GOLDEN_ANGLE;
+        // a map with no respawn list at all: there is nothing to walk, and the
+        // subtraction below would underflow. The fallback scan is exactly the
+        // case for it
+        if slots == 0 {
+            return self.find_spawn_off_slots(seed, requested, skip);
+        }
+
+        let bits = usize::BITS - (slots - 1).leading_zeros();
+
+        for attempt in 0..slots {
+            let k = reverse_bits((seed + attempt) % slots, bits);
+
+            // the bit-reversal of a range that is not a power of two overshoots
+            // it; those indices are simply not candidates
+            let Some(slot) = self.spawn_slots.get(k) else {
+                continue;
+            };
+
+            let point = [slot[0], slot[1]];
+
+            if self.is_clear_except(point, skip) {
+                return self.facing_centre(point);
+            }
+        }
+
+        self.find_spawn_off_slots(seed, requested, skip)
+    }
+
+    /// Last resort of `find_spawn_from`: every respawn point of the map is
+    /// taken (or the map declares fewer of them than the room seats), and the
+    /// snake still needs somewhere to stand.
+    ///
+    /// Deliberately NOT the map's spiral and making no claim to be: this is a
+    /// scan of the disc the core itself owns, and the only properties it has
+    /// to have are «inside the arena», «deterministic» (scenarios run with
+    /// `--determinism`) and «spread out». Anything that reads the map's
+    /// geometry belongs in `src/data/maps/arena.js`, which is where the
+    /// candidates above come from.
+    fn find_spawn_off_slots(
+        &self,
+        seed: usize,
+        requested: [f32; 3],
+        skip: Option<u32>,
+    ) -> [f32; 3] {
+        const RINGS: usize = 64;
+        const SPAN: f32 = 0.9;
+
+        let golden = std::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        let limit = (self.arena.radius - self.world.edge_margin).max(0.0) * SPAN;
+        let mut best: Option<([f32; 2], f32)> = None;
+
+        for attempt in 0..RINGS {
+            let k = reverse_bits((seed + attempt) % RINGS, 6);
+            let r = limit * ((k as f32 + 0.5) / RINGS as f32).sqrt();
+            let theta = k as f32 * golden;
             let point = [
                 self.arena.centre[0] + theta.cos() * r,
                 self.arena.centre[1] + theta.sin() * r,
             ];
 
-            if self.is_clear(point) {
+            if self.is_clear_except(point, skip) {
                 return self.facing_centre(point);
+            }
+
+            // …and if nothing is clear, the roomiest candidate still beats the
+            // requested point: standing inside someone is certain death the
+            // moment the spawn grace runs out
+            let room = self.room_at(point, skip);
+
+            match best {
+                Some((_, best_room)) if best_room >= room => {}
+                _ => best = Some((point, room)),
             }
         }
 
-        requested
+        match best {
+            Some((point, _)) => self.facing_centre(point),
+            None => requested,
+        }
+    }
+
+    /// Distance from `point` to the nearest living body, ignoring `skip`.
+    fn room_at(&self, point: [f32; 2], skip: Option<u32>) -> f32 {
+        self.snakes
+            .iter()
+            .filter(|(id, other)| Some(**id) != skip && other.alive)
+            .map(|(_, other)| other.path.distance_to(point))
+            .fold(f32::INFINITY, f32::min)
     }
 
     /// Kills a snake: the crystals it carried go back onto the map along the
@@ -375,7 +465,13 @@ impl SnakesSim {
 
     /// Puts a dead snake back on the map. The engine is not involved: it never
     /// learned the snake had died.
-    fn revive(&mut self, id: u32, rng: &mut Rng, map_points: &[[f32; 3]], events: &mut Vec<CoreEvent>) {
+    fn revive(
+        &mut self,
+        id: u32,
+        rng: &mut Rng,
+        map_points: &[[f32; 3]],
+        events: &mut Vec<CoreEvent>,
+    ) {
         let spot = self.find_spawn(rng, map_points);
         let start = self.world.start_crystals;
 
@@ -516,6 +612,7 @@ impl GameSim<SnakesGame> for SnakesSim {
             world,
             arena: Arena::default(),
             population: usize::MAX,
+            spawn_slots: Vec::new(),
             field: CrystalField::default(),
             snakes: IndexMap::new(),
             bots: IndexMap::new(),
@@ -550,7 +647,7 @@ impl GameSim<SnakesGame> for SnakesSim {
 
         // the engine's point is a suggestion, not a placement: it does not know
         // which of them are occupied
-        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg]);
+        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], None);
 
         let mut snake = Snake::new(
             model_name,
@@ -603,7 +700,9 @@ impl GameSim<SnakesGame> for SnakesSim {
         let start = self.world.start_crystals;
         let grace = self.world.spawn_grace_seconds;
         let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
-        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg]);
+        // the snake being reset is still alive and still dragging its old
+        // body: its own body must not be what pushes it off a free point
+        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], Some(game_id));
 
         if let Some(snake) = self.snakes.get_mut(&game_id) {
             snake.team_id = team_id;
@@ -796,12 +895,14 @@ impl GameSim<SnakesGame> for SnakesSim {
             });
         }
 
-        let map_points: Vec<[f32; 3]> = map
-            .respawns
-            .values()
-            .next()
-            .cloned()
-            .unwrap_or_default();
+        let map_points: Vec<[f32; 3]> = map.respawns.values().next().cloned().unwrap_or_default();
+
+        // kept for `find_spawn_from`, which runs from `spawn_actor` — outside
+        // the fixed step, where the map is not in hand. Compared before the
+        // clone: the map changes rarely, the step runs 120 times a second
+        if self.spawn_slots != map_points {
+            self.spawn_slots = map_points.clone();
+        }
 
         let world = self.world.clone();
 
@@ -849,7 +950,12 @@ impl GameSim<SnakesGame> for SnakesSim {
             if outcome.mode_changed {
                 ctx.events.push(CoreEvent::PanelActive {
                     id: *id,
-                    field: if snake.boosting { MODE_BOOST } else { MODE_CRUISE }.to_string(),
+                    field: if snake.boosting {
+                        MODE_BOOST
+                    } else {
+                        MODE_CRUISE
+                    }
+                    .to_string(),
                 });
             }
         }
@@ -1242,6 +1348,22 @@ mod tests {
         })
     }
 
+    /// `MAP_JSON` with a respawn list of its own — the candidates
+    /// `find_spawn_from` walks come from the map, so a test about them needs
+    /// to be able to write it.
+    fn map_json_with_respawns(points: &[[f32; 3]]) -> String {
+        let list = points
+            .iter()
+            .map(|p| format!("[{}, {}, {}]", p[0], p[1], p[2]))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        MAP_JSON.replace(
+            r#""respawns": { "players": [[1280, 1280, 0]] }"#,
+            &format!(r#""respawns": {{ "players": [{list}] }}"#),
+        )
+    }
+
     fn game_with_grace(grace: f32) -> GameState {
         let value = config_json(grace);
         let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
@@ -1265,7 +1387,11 @@ mod tests {
             game.step(DT);
         }
 
-        assert_eq!(game.actor_position(1).unwrap(), start, "frozen for the grace");
+        assert_eq!(
+            game.actor_position(1).unwrap(),
+            start,
+            "frozen for the grace"
+        );
 
         // …and the moment it runs out, the snake is an ordinary snake again
         for _ in 0..120 {
@@ -1299,7 +1425,10 @@ mod tests {
             game.step(DT);
         }
 
-        assert!(game.actor_position(1).unwrap()[0] > 900.0, "never got there");
+        assert!(
+            game.actor_position(1).unwrap()[0] > 900.0,
+            "never got there"
+        );
         assert!(game.is_alive(1), "the runner died on a snake in grace");
         assert!(game.is_alive(2), "the newcomer was killed during its grace");
     }
@@ -1354,6 +1483,116 @@ mod tests {
                 assert!(gap >= RESPAWN_CLEARANCE, "{a:?} and {b:?} are {gap} apart");
             }
         }
+    }
+
+    #[test]
+    fn the_map_points_are_the_candidates_before_the_fallback_scan_is() {
+        // the relocation walks the map's OWN respawn points first: the core
+        // must not invent a geometry of its own while the map declares one
+        let mut game = game_with_grace(2.0);
+        let free = [700.0, 1500.0, 0.0];
+
+        game.load_map(&map_json_with_respawns(&[[1280.0, 1280.0, 0.0], free]))
+            .unwrap();
+        game.step(DT);
+
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        // the same (now occupied) point: the second snake has to land on the
+        // other point of the map, exactly, and not somewhere near it
+        game.spawn_actor(2, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let spot = game.actor_position(2).unwrap();
+
+        assert!(
+            (spot[0] - free[0]).abs() < 0.01 && (spot[1] - free[1]).abs() < 0.01,
+            "expected the map's free point {free:?}, got {spot:?}"
+        );
+    }
+
+    #[test]
+    fn a_crowd_past_the_map_points_still_gets_room_instead_of_a_heap() {
+        // one point on the map and forty snakes: the map's list runs out and
+        // the fallback scan of the disc takes over. Nobody may be left
+        // standing inside somebody else — a stack dies together the moment
+        // the spawn grace expires
+        let mut game = game_with_grace(2.0);
+
+        game.step(DT);
+
+        for id in 1..=40u32 {
+            game.spawn_actor(id, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        }
+
+        let spots: Vec<[f32; 2]> = (1..=40u32)
+            .map(|id| {
+                let p = game.actor_position(id).unwrap();
+
+                [p[0], p[1]]
+            })
+            .collect();
+
+        let mut stacked = 0;
+
+        for (i, a) in spots.iter().enumerate() {
+            for b in &spots[i + 1..] {
+                if (a[0] - b[0]).hypot(a[1] - b[1]) < 1.0 {
+                    stacked += 1;
+                }
+            }
+        }
+
+        assert_eq!(stacked, 0, "{stacked} pairs of snakes share a point");
+    }
+
+    #[test]
+    fn a_map_without_respawn_points_still_places_the_snake() {
+        // the walk has nothing to walk and the subtraction that sizes it would
+        // underflow: the fallback scan has to take over instead of panicking
+        let mut game = game_with_grace(2.0);
+
+        game.load_map(&MAP_JSON.replace(
+            r#""respawns": { "players": [[1280, 1280, 0]] }"#,
+            r#""respawns": {}"#,
+        ))
+        .unwrap();
+        game.step(DT);
+
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        game.spawn_actor(2, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        let a = game.actor_position(1).unwrap();
+        let b = game.actor_position(2).unwrap();
+        let gap = (a[0] - b[0]).hypot(a[1] - b[1]);
+
+        assert!(gap >= RESPAWN_CLEARANCE, "{a:?} and {b:?} are {gap} apart");
+    }
+
+    #[test]
+    fn a_respawning_snake_is_not_pushed_off_a_free_point_by_its_own_body() {
+        // `reset_actor` runs while the snake is still alive and still dragging
+        // its old body. Counting that body would relocate a player nobody else
+        // is anywhere near
+        let mut game = game_with_grace(0.0);
+
+        game.step(DT);
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+
+        // let it grow a body to trip over
+        for _ in 0..120 {
+            game.step(DT);
+        }
+
+        let head = game.actor_position(1).unwrap();
+
+        // asking for the spot it is standing on: only its own body is there
+        game.reset_actor(1, 1, head[0], head[1], 0.0);
+
+        let spot = game.actor_position(1).unwrap();
+
+        assert!(
+            (spot[0] - head[0]).abs() < 0.01 && (spot[1] - head[1]).abs() < 0.01,
+            "the snake was moved off its own free point: {head:?} -> {spot:?}"
+        );
     }
 
     #[test]

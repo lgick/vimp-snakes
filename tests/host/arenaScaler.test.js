@@ -82,6 +82,19 @@ describe('buildArena', () => {
     }
   });
 
+  it('hands out sixty-four DISTINCT points', () => {
+    // the order is a bit-reversal of the index, which is a permutation only
+    // while the count is a power of two. At 48 it would push points past the
+    // span and hand out others twice — duplicate spawn points and not one
+    // error to show for it
+    for (const count of [0, 12, 32]) {
+      const points = buildArena(count).respawns.players;
+      const unique = new Set(points.map(([x, y]) => `${x}:${y}`));
+
+      expect(unique.size).toBe(points.length);
+    }
+  });
+
   it('keeps the respawn points further apart than a spawn clearance', () => {
     // core/src/game.rs RESPAWN_CLEARANCE — two snakes closer than this count
     // as sharing a spot
@@ -104,6 +117,7 @@ describe('ArenaScaler', () => {
   let coreAdapter;
   let socketManager;
   let scripted;
+  let vimp;
   let users;
   let scaler;
 
@@ -111,6 +125,7 @@ describe('ArenaScaler', () => {
     coreAdapter = { createMap: vi.fn() };
     socketManager = { sendMap: vi.fn() };
     scripted = { createMap: vi.fn() };
+    vimp = { overrideMapData: vi.fn() };
     users = [human(1), human(2)];
     scaler = new ArenaScaler(
       {
@@ -123,7 +138,7 @@ describe('ArenaScaler', () => {
   });
 
   it('ignores every custom event that is not a population report', () => {
-    scaler.onCoreEvent({ type: 'crystals', id: 1, gained: 3 });
+    scaler.onCoreEvent({ type: 'crystals', id: 1, gained: 3 }, { vimp });
     scaler.onCoreEvent(null);
 
     expect(coreAdapter.createMap).not.toHaveBeenCalled();
@@ -224,6 +239,44 @@ describe('ArenaScaler', () => {
     // the crowd did not change, so neither does what a shrink waits for
     scaler.onCoreEvent({ type: 'population', count: 19 });
     expect(scaler.mapData).toBe(inForce);
+  });
+
+  // the engine hands out respawn points from its OWN copy of the map — the
+  // one the room was loaded with. A game that swaps the map underneath it has
+  // to say so, or the next round restart places everyone on a disc that is
+  // no longer there
+  it('gives the engine the map it will start the next round on', () => {
+    scaler.onCoreEvent({ type: 'population', count: 20 }, { vimp });
+
+    expect(vimp.overrideMapData).toHaveBeenCalledWith(scaler.mapData);
+  });
+
+  it('does not touch the engine copy while the size is unchanged', () => {
+    scaler.onCoreEvent({ type: 'population', count: 20 }, { vimp });
+    vimp.overrideMapData.mockClear();
+
+    scaler.onCoreEvent({ type: 'population', count: 20 }, { vimp });
+
+    expect(vimp.overrideMapData).not.toHaveBeenCalled();
+  });
+
+  it('works with an engine that has no overrideMapData', () => {
+    // an older engine build, and the test stubs of this suite: the resize
+    // itself must not depend on the hook
+    expect(() =>
+      scaler.onCoreEvent({ type: 'population', count: 20 }, { vimp: {} }),
+    ).not.toThrow();
+
+    expect(coreAdapter.createMap).toHaveBeenCalled();
+  });
+
+  it('re-sends the map in force to the engine too', () => {
+    scaler.onCoreEvent({ type: 'population', count: 20 }, { vimp });
+    vimp.overrideMapData.mockClear();
+
+    scaler.reapply();
+
+    expect(vimp.overrideMapData).toHaveBeenCalledWith(scaler.mapData);
   });
 
   it('has nothing to re-send before the first population report', () => {
