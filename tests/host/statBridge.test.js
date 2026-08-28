@@ -208,6 +208,7 @@ describe('StatBridge', () => {
       finishPlayerGame: vi.fn(),
       flushPlayerData: vi.fn(),
       setPlayerState: vi.fn(),
+      isPlayerRatingLoaded: vi.fn(() => true),
       getPlayerRating: vi.fn(() => ({ value: 30, placement: 4, total: 9 })),
     };
 
@@ -227,6 +228,7 @@ describe('StatBridge', () => {
       finishPlayerGame: vi.fn(),
       flushPlayerData: vi.fn(),
       setPlayerState: vi.fn(),
+      isPlayerRatingLoaded: vi.fn(() => true),
       getPlayerRating: vi.fn(() => ({ value: 500, placement: 2, total: 9 })),
     };
 
@@ -236,10 +238,29 @@ describe('StatBridge', () => {
     expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: false });
   });
 
-  it('treats the first game of an engine without ratings as a record', () => {
-    // an old engine (or a test stub) has no getPlayerRating: the daily value
-    // reads as zero, and any scoring game beats it — losing the points would
-    // be worse than one extra write
+  // `urgent` bypasses the engine's backoff, so spending it on a slice that is
+  // NOT LOADED spends the room's whole write budget exactly while the auth
+  // service is down — an unloaded slice reads as zero, and a zero makes every
+  // death a record. Unknown therefore means "not a record"
+  it('does not call an unloaded daily slice a record', () => {
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+      isPlayerRatingLoaded: vi.fn(() => false),
+      getPlayerRating: vi.fn(() => ({ value: 0, placement: null, total: 0 })),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 5 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: false });
+  });
+
+  // an old engine has neither call: the same rule applies, and the points are
+  // not lost either way — they wait for the ordinary interval
+  it('does not call an old engine without the rating calls a record', () => {
     const vimp = {
       addPlayerPoints: vi.fn(),
       finishPlayerGame: vi.fn(),
@@ -250,7 +271,7 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 5 }, { vimp });
     bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
 
-    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: true });
+    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: false });
   });
 
   it('pays the killer BEFORE the victim\'s counters are touched', () => {

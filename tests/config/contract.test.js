@@ -186,6 +186,24 @@ describe('client config', () => {
     expect(params.heads).toBeUndefined();
   });
 
+  // The mode is declared TWICE and both halves must agree: the client half
+  // above says what to draw, `gameConfig.statMode` says that the host must
+  // stop broadcasting the room table. Only the client half and the host
+  // broadcasts a table every tick to a client that discards it; only the host
+  // half and the client draws a room table nobody fills. Engine rule C11
+  // checks this too — it is here because it is THIS game's declaration
+  it('declares the same mode on the host half', () => {
+    expect(hostPlugin.gameConfig.statMode).toBe('leaderboard');
+    expect(hostPlugin.gameConfig.statMode).toBe(clientConfig.modules.stat.params.mode);
+  });
+
+  // the client asks nobody: the top arrives on the accolades port, pushed by
+  // the host. A refresh interval here would mean a request from the match
+  it('has no refresh interval of its own: the top is pushed, not fetched', () => {
+    expect(clientConfig.modules.stat.params.refreshMs).toBeUndefined();
+    expect(clientConfig.parts.componentDependencies.accolades).toContain('Snake');
+  });
+
   it('keeps the host schema at name, status, score and ping', () => {
     // the `rank` column is gone with the room table, and the keys close up
     // behind it: a gap in the indexes is a column the engine writes nowhere.

@@ -241,17 +241,18 @@ export default {
     stat: {
       params: {
         // Tab shows the game's GLOBAL top ten, not this room: the engine
-        // draws none of the host's rows in this mode (and the host stops
-        // sending them), the client fetches the list from the master itself.
+        // draws none of the host's rows in this mode, and the host stops
+        // sending them — it pushes the top itself, on the accolades port.
+        // The client makes no request of its own: in a match the player
+        // talks to their game server, not to the master. Paired with
+        // `statMode: 'leaderboard'` in src/config/game.js, which is what
+        // stops the host's broadcast; contract rule C11 checks the pair.
         // Needs engine API 4.
         mode: 'leaderboard',
         // the daily slice: the best result of a SINGLE game over a UTC day
         period: 'day',
         // ten rows; a player outside the top replaces the tenth of them
         limit: 10,
-        // Tab is pressed often, and the master collapses the top behind a
-        // TTL cache anyway
-        refreshMs: 15000,
         // place · nick · score. The order comes from auth, so `heads`,
         // `bodies` and `sortList` are all gone: there is nothing to sort and
         // no team in a global list

@@ -48,9 +48,11 @@ export const SNAKE = {
     diamondWide: 0.55,
     // the diamond is the body colour lifted towards white
     diamondLighten: 0.55,
-    // the crown sprite: size in radii, and how far above the head it sits
+    // the crown sprite: size in radii, and how far along the facing it is
+    // pushed off the head's centre, also in radii — it rides the forehead
+    // rather than the middle of the head
     crownScale: 1.9,
-    crownLift: 1.25,
+    crownLift: 0.44,
     crownTint: 0xffd76b,
   },
 };

@@ -362,8 +362,8 @@ export default class Snake extends Container {
     this._crown.rotation = angle + Math.PI / 2;
     // pushed out along the facing, so it rides the forehead rather than the
     // middle of the head
-    this._crown.x = x + Math.cos(angle) * radius * crownLift * 0.35;
-    this._crown.y = y + Math.sin(angle) * radius * crownLift * 0.35;
+    this._crown.x = x + Math.cos(angle) * radius * crownLift;
+    this._crown.y = y + Math.sin(angle) * radius * crownLift;
   }
 
   /// True while this part draws the snake of the player sitting at this tab.

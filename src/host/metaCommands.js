@@ -58,11 +58,13 @@ export const rankCommand = {
     let rating = null;
 
     try {
-      rating = await ctx.playerDataSync.refreshPlacement(gameId, 'day');
+      rating = await ctx.playerDataSync?.refreshPlacement?.(gameId, 'day');
     } catch {
       // an engine without the call, or a request that blew up: answer with
-      // whatever the last refresh left behind
-      rating = ctx.playerDataSync.getRating?.(gameId, 'day') ?? null;
+      // whatever the last refresh left behind. Every hop optional, the catch
+      // block included — a throw from HERE is outside the try and becomes the
+      // very unhandled rejection the note above is about
+      rating = ctx.playerDataSync?.getRating?.(gameId, 'day') ?? null;
     }
 
     const { value = 0, placement = null, total = 0 } = rating ?? {};

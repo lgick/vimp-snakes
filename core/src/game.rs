@@ -1147,7 +1147,12 @@ impl GameSim<SnakesGame> for SnakesSim {
         // freshly shrunken disc goes with it: the boost's fuel, the piles of
         // the snakes the shrink just killed, and the natural spawn.
         if arena_changed {
-            self.field.retain_inside(&self.arena);
+            // the count is deliberately dropped here: the core has no logger
+            // (it is a wasm module talking through events alone), and the
+            // number is worth an event to nobody — the clients learn about
+            // every removal from the `cr` delta anyway. It is returned for
+            // the tests, which assert on exactly how much a shrink took
+            let _dropped = self.field.retain_inside(&self.arena);
         }
 
         self.snakes = snakes;

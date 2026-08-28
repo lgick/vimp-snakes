@@ -174,10 +174,13 @@ you approach, not a frame you always see), `dynamicCamera: true`,
   the panel contract requires the client to name every host field, and hidden
   by `style.css`.
 - **`stat`** — `mode: 'leaderboard'`: `Tab` shows the game's global top
-  instead of the room's table, so the client fetches the list from the master
-  itself and the host sends no rows for it. `period: 'day'` (the best result
-  of a single game over the UTC day), `limit: 10`, `refreshMs: 15000`, and
-  three columns — `#`, `snake`, `score`. The order comes from auth, so
+  instead of the room's table. The list is **pushed by the host** on the
+  accolades port — the client asks nobody, and the host sends no rows of the
+  room's own. This half is paired with `statMode: 'leaderboard'` in
+  `src/config/game.js`, which is what stops that broadcast; contract rule
+  `C11` fails the build if only one of the two is declared. `period: 'day'`
+  (the best result of a single game over the UTC day), `limit: 10`, and three
+  columns — `#`, `snake`, `score`. The order comes from auth, so
   `heads`, `bodies` and `sortList` are all gone: there is nothing to sort and
   no team in a global list. A player outside the top replaces its tenth row.
   The mode needs `ENGINE_API_VERSION` 4, and the engine draws only the bare

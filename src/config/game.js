@@ -47,7 +47,9 @@ export default {
     // Nothing else lives here on purpose. A free-form `parts.*` key does reach
     // the client config — but NOT a part: a part is constructed with
     // `(data, assets, dependencies)`, and `dependencies` only ever holds the
-    // three engine services. So the palette and the arena colours are plain
+    // engine's own services — five of them as of engine API 4, listed under
+    // `componentDependencies` in src/config/client.js. So the palette and the
+    // arena colours are plain
     // imports on the client side (`src/data/palette.js`, `src/data/theme.js`)
     // and the simulation numbers live in `models` (see the note there).
   },
@@ -131,6 +133,15 @@ export default {
   // round timer below and the team wipe are covered by the same flag.
   endlessRound: true,
 
+  // The third engine flag, and the pair of `modules.stat.params.mode:
+  // 'leaderboard'` in src/config/client.js: by Tab the client draws the
+  // game's GLOBAL top, which the host pushes on the accolades port, so the
+  // engine's own room table is never rendered. Declaring this stops the host
+  // from broadcasting that table every tick to nobody. Both halves are
+  // checked together by contract rule C6 — one without the other is a
+  // defect, not a configuration.
+  statMode: 'leaderboard',
+
   teams: {
     players: 1,
   },
@@ -170,7 +181,9 @@ export default {
     fields: {
       // carried right now: the geometry of the snake and the fuel of the boost
       crystals: { key: 'c', value: 0 },
-      // crystals eaten over the whole visit plus a flat bonus per kill
+      // the score of THIS LIFE: crystals eaten plus a flat bonus per kill,
+      // minus what the boost burnt. Zeroed by a respawn, because one life is
+      // one game (src/host/StatBridge.js)
       score: { key: 's', value: 0 },
       // 0 while alive; otherwise "crystals + 1", which is how the client tells
       // "dead with zero crystals" from "alive" through a channel whose values

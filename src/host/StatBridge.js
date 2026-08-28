@@ -211,10 +211,22 @@ export default class StatBridge {
     //
     // The optional calls keep old engine builds and test stubs working — the
     // same reason `addPlayerRank` was called that way before them.
-    // read BEFORE the result is reported: `finishPlayerGame` raises the
+    //
+    // Read BEFORE the result is reported: `finishPlayerGame` raises the
     // engine's own daily value to this game's score, so asking afterwards
-    // would always answer "yes, a record"
-    const dayBefore = vimp?.getPlayerRating?.(gameId, 'day')?.value ?? 0;
+    // would always answer "yes, a record".
+    //
+    // AN UNLOADED SLICE IS NOT A ZERO. `getPlayerRating` answers with zeros
+    // for a participant whose `load()` has not come back — and, if the auth
+    // service is down, for one whose load never will. Reading that as "today's
+    // best is 0" makes EVERY death a record, and a record spends `urgent`,
+    // which bypasses the engine's backoff. That is the room hammering a
+    // service precisely while it is failing. Unknown therefore means "not a
+    // record": nothing is lost, the points wait for the ordinary interval.
+    const dayKnown = vimp?.isPlayerRatingLoaded?.(gameId, 'day') === true;
+    const dayBefore = dayKnown
+      ? (vimp.getPlayerRating?.(gameId, 'day')?.value ?? 0)
+      : Infinity;
 
     vimp?.addPlayerPoints?.(gameId, victim.score);
     vimp?.finishPlayerGame?.(gameId);

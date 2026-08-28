@@ -166,11 +166,19 @@ game") an unfinished game has no result to report anyway.
 
 ### The table behind `Tab`
 
-`modules.stat.params.mode: 'leaderboard'` (`src/config/client.js`): `Tab`
-shows the game's **global daily top ten** — place · nick · score — and not
-this room at all. The client fetches the list from the master itself (at most
-once every 15 s, and the master caches it behind a TTL), the host sends no
-rows for it, and there is no header. A player outside the top ten replaces the
+`modules.stat.params.mode: 'leaderboard'` (`src/config/client.js`) plus
+`statMode: 'leaderboard'` (`src/config/game.js`): `Tab` shows the game's
+**global daily top ten** — place · nick · score — and not this room at all.
+
+The list is **pushed by the host**, on the same port as the badges below: the
+room asks the master for the top once every 45 s and hands it to all eight of
+its players, and a client in a match makes no request of its own. That is the
+rule, not an optimisation — a player talks to their game server. At the scale
+this is built for (100 games × 100 servers × 8 players) a client asking for
+itself would mean thousands of requests a second for a player's own placement,
+which no cache can collapse because it is personal to them.
+
+The host sends no rows of the room's own, and there is no header. A player outside the top ten replaces the
 tenth line with their own row and their own place; an unranked player gets a
 dash instead of a place.
 
