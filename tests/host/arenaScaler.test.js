@@ -300,6 +300,28 @@ describe('ArenaScaler', () => {
     expect(socketManager.sendMap).not.toHaveBeenCalled();
   });
 
+  it('does not mistake a reused gameId for a client it already served', () => {
+    // The engine hands out the SMALLEST free gameId
+    // (`ParticipantManager._nextGameId`), so ids are recycled: the player who
+    // joins after one leaves can get the id that just came free. Keyed by
+    // gameId, the bookkeeping told the scaler it had already sent this client
+    // the size in force — and it had sent it nothing at all. That client drew
+    // the base circle for the whole match while the core enforced another one.
+    scaler.onCoreEvent({ type: 'population', count: 2 });
+
+    // player 2 leaves and a new one joins onto the same gameId
+    users.splice(1, 1, { gameId: 2, socketId: 'fresh', isReady: true });
+    socketManager.sendMap.mockClear();
+
+    // the crowd is the same size, so nothing is rebuilt: only the catch-up
+    // runs
+    scaler.onCoreEvent({ type: 'population', count: 2 });
+
+    expect(coreAdapter.createMap).toHaveBeenCalledTimes(1);
+    expect(socketManager.sendMap).toHaveBeenCalledTimes(1);
+    expect(socketManager.sendMap).toHaveBeenCalledWith('fresh', scaler.mapData);
+  });
+
   it('forgets the clients that left', () => {
     scaler.onCoreEvent({ type: 'population', count: 2 });
     users.splice(0, 1);

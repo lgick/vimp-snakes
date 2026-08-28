@@ -202,6 +202,16 @@ The places arrive on the client's `accolades` service (an engine service, see
 so the badge follows the player onto any server, and it is gone the moment the
 place is. It is worn in the match only: the lobby draws none of it.
 
+Both badges read on **every** snake colour, and that is a rule rather than a
+happy accident. A badge is never mixed out of the body colour: the diamonds
+are filled in one of two fixed inks — `SNAKE.accolade.inkDark` / `inkLight`,
+whichever contrasts more with this body — and outlined in the other, and the
+crown keeps its gold but is drawn over a dark silhouette of itself. Painted by
+lightening the body, the diamonds of a white snake came out at 1.04:1 against
+it and the crown of a yellow one at 1.04:1 — i.e. the reward was invisible for
+exactly four of the twelve colours. `tests/client/parts.test.js` walks the
+whole palette and holds both badges at 3:1 or better.
+
 ## HUD panel
 
 Left to right the panel declares five cells and shows exactly one: `score`.

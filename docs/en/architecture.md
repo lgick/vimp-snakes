@@ -163,6 +163,17 @@ free-form `gameConfig.parts.*` key reaches the client config but never a part
    hot-swaps it through `coreAdapter.createMap` + `socketManager.sendMap` +
    `vimp.overrideMapData` — never through the engine's own map change, which
    would wipe the scores.
+
+   Two details of that hot swap are load-bearing. `_delivered` — "which client
+   already holds which size" — is keyed by **socketId, not gameId**: the engine
+   hands out the smallest free gameId (`ParticipantManager._nextGameId`), so
+   ids are reused, and a player who joined onto the id of one who just left
+   inherited their entry and was never sent the map in force at all — drawing
+   the base circle for the whole match while the core enforced another one. And
+   `vimp.overrideMapData` replaces the map a JOINING client is sent as well as
+   the one the next round starts on (vimp-engine ≥ 0.22.1), so a newcomer draws
+   the right circle from its first frame and `_broadcast` is the safety net
+   rather than the main channel.
 4. **Turning has one function, two sources.** Keys and the pointer target
    (`MoveInput.aim`, a world point from the engine's `apply_aim`) both reduce
    to the clamped step of `motion::step_angle`, so a mouse never out-turns

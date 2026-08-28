@@ -91,7 +91,27 @@ SnakesSim`, `core/src/game.rs`):
   and not `edge_margin` alone. The inset is radial, so it holds for any
   heading, including the engine's own when the requested point is honoured; a
   head on the bare `edge_margin` ring used to leave the tail outside the disc,
-  where nothing kills it.
+  where nothing kills it. When the model is unknown the margin falls back to
+  the widest any known model needs, never to the bare `edge_margin`.
+
+  **That check is made against the arena of the LAST fixed step**, and it has
+  to be re-made: `spawn_actor`, `reset_actor` and `spawn_scripted_actor` are
+  called by the engine outside the step, while `self.arena` and
+  `self.spawn_slots` are rebuilt only inside it. `RoundManager._startRound`
+  swaps the map and places every actor in one synchronous pass, so a round
+  restart right after a resize lays everyone out on the previous geometry. The
+  answer is `reseat_stranded`, which runs at the top of every step, with the
+  new disc and the new slots already in hand and before anything moves: any
+  living snake still in its spawn grace whose body is not wholly inside the
+  disc is moved to a fresh spot, and the REMAINDER of its grace is handed back
+  untouched (`Snake::grace_left`) — a reseat that refreshed the grace would be
+  a way to stay unkillable. Because the move happens while the snake is frozen
+  and blinking, it is invisible.
+
+  The same mechanism covers the other direction: a snake in grace is skipped
+  by section 1 of the step and therefore never tested against the boundary in
+  section 2, so an arena that shrinks over its two frozen seconds would leave
+  it standing outside the ring until the grace ran out and the edge killed it.
 - **`apply_input`** — maps an action name to its bit via `KeyBits` (built from
   `gameConfig.playerKeys`); `type: 1` keys (`respawn`) are armed by `down` and
   consumed by exactly one fixed step.
@@ -214,8 +234,12 @@ One `IndexMap<u32, Crystal>` plus two delta accumulators drained per packed
 frame. Natural spawns run on a timer (`spawn_interval`) while the field is
 below `max_crystals`, at a random point inside the disc minus `edge_margin`,
 with the tier rolled from `tier_weights`. Pickup is a distance test against
-the head. `request_resync()` re-sends the whole field; `game.rs` calls it
-whenever an actor spawns.
+the head. `request_resync()` re-sends the whole field; `game.rs` calls it on
+`spawn_actor` and `reset_actor` and **not** on `revive`. A joining client has
+seen no delta at all and needs the field; a respawning one has had every delta
+since it joined, and one life is one game here, so resyncing on each respawn
+would put the whole field on the reliable channel several times a second for
+nothing.
 
 **A shrinking arena takes its crystals with it.** The disc is rebuilt under
 the running match, and when it shrinks everything left in the old ring is
@@ -233,6 +257,17 @@ exactly the step on which the snakes left in the old ring hit the boundary
 and die, and `kill` drops their pile along the BODY — hundreds of units of
 it, all outside the new disc. Sweeping first would sweep before the mess is
 made, and nothing would come for it until the next resize.
+
+**No crystal is ever outside the disc**, and the shrink is not the only way
+one could get there. Both callers of `drop_at` — the boost tax behind the
+tail and the pile of a dead snake — drop along a body, and a body reaches past
+the boundary every time a snake dies on it, which is how most of them die. So
+`drop_at` itself clamps the point onto the disc (`Arena::clamp_inside`, with
+`edge_margin`): the pile of a snake killed by the edge is tucked slightly
+inwards, which is where it can be collected. Behind that, `retain_inside()`
+also runs once a second (`SWEEP_EVERY_STEPS`) and not only on a resize — the
+rule is an invariant of the field, and a rule that only runs on one event
+holds only until the next feature drops a crystal somewhere else.
 
 ## Bots
 

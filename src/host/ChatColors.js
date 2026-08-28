@@ -15,6 +15,11 @@ import { snakeColorCss } from '../data/palette.js';
 // So the core also reports it in a `spawn` custom event, and this module is
 // the only thing that listens for one.
 //
+// Bots are coloured too: `spawn_scripted_actor` delegates to `spawn_actor`,
+// so a bot emits the same event. That is deliberate — a bot writes nothing to
+// chat itself, but the engine's system lines about it read better in the
+// colour the arena shows.
+//
 // It lives here rather than in StatBridge for the same reason StatBridge
 // exists at all: `onCoreEvent` is called with `{ vimp, panel }` and nothing
 // else, while `participants` only ever appears in `createModules`.

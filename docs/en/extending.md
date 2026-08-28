@@ -117,6 +117,14 @@ the part, bake its texture white if it needs one (`src/client/bakers/`, see
 rather than in the drawing code. Then cover it in `tests/client/parts.test.js`
 with a stub service — the two badges of this game are tested that way.
 
+**A badge must not be derived from the body colour.** Use `badgeInk(color)`
+from `src/client/parts/Snake.js`, which returns `[fill, edge]` — the more
+contrasting of the two fixed inks and its opposite for the outline. Lightening
+or darkening the body is what made the diamonds invisible on a white snake.
+This binds `SNAKE_COLORS` too: appending a colour is no longer free, it has to
+pass the contrast cases of `tests/client/parts.test.js` (3:1 against both badge
+inks) alongside the old "append, never insert" rule of `src/data/palette.js`.
+
 ## A new chat command
 
 The engine parses no commands of its own: `HostPlugin.chatCommands` is the

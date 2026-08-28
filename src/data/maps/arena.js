@@ -5,7 +5,11 @@
 // So the grid carries no geometry, only a size: both halves derive the arena
 // from it, identically and without a config channel of their own —
 //
-//     radius = cols * step * scale / 2,  centre = (radius, radius)
+//     radius = min(cols, rows) * step / 2,  centre = (cols * step / 2, rows * step / 2)
+//
+// (`step` is the one the engine hands out, i.e. already multiplied by `scale`;
+// the grid here is square, so `min` is `cols` — the form is written out in
+// full so that the three places that state it state the same thing.)
 //
 // The core reads it off `ctx.map` (`core/src/arena.rs`) and kills a snake
 // whose head leaves the disc; `src/client/parts/Arena.js` reads the same

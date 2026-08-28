@@ -60,6 +60,11 @@ const RESPAWN_CLEARANCE: f32 = 140.0;
 /// How far ahead a bot looks when deciding whether it is about to die.
 const BOT_LOOKAHEAD: f32 = 220.0;
 
+/// How many fixed steps between two sweeps of the crystal field
+/// (`CrystalField::retain_inside`). The step is 1/120 s, so this is once a
+/// second — see the comment at the call site for why it exists at all.
+const SWEEP_EVERY_STEPS: u32 = 120;
+
 /// Reverses the low `bits` bits of `i`, turning a counter into the van der
 /// Corput sequence: every prefix of the walk samples the whole range.
 ///
@@ -152,6 +157,8 @@ pub struct SnakesSim {
     /// `snakes` including a handoff restore. `usize::MAX` means "nothing
     /// reported yet" and forces the next step to report.
     population: usize,
+    /// Fixed steps since the last field sweep. See `SWEEP_EVERY_STEPS`.
+    since_sweep: u32,
     /// The map's respawn points, as the engine last sent them. Kept because
     /// `spawn_actor` has to search for a free spot and the map is only
     /// handed in on the fixed step.
@@ -263,6 +270,104 @@ impl SnakesSim {
         self.world.edge_margin + length_for(self.world.start_crystals, model)
     }
 
+    /// The widest spawn margin any known model needs.
+    ///
+    /// The fallback of the two lookups below, and deliberately NOT
+    /// `edge_margin`: that is the inset of a CRYSTAL, it leaves no room for a
+    /// body, and a snake whose model went missing would be laid out with its
+    /// tail hanging out of the disc — the exact failure `spawn_margin` exists
+    /// to prevent. An unknown model is a config bug either way; erring wide
+    /// costs a spawn nearer the centre and nothing else.
+    fn widest_spawn_margin(&self) -> f32 {
+        self.models
+            .values()
+            .map(|model| self.spawn_margin(model))
+            .fold(self.world.edge_margin, f32::max)
+    }
+
+    /// The spawn margin of a snake already in the game.
+    fn spawn_margin_of(&self, game_id: u32) -> f32 {
+        self.snakes
+            .get(&game_id)
+            .and_then(|snake| self.models.get(&snake.model))
+            .map(|model| self.spawn_margin(model))
+            .unwrap_or_else(|| self.widest_spawn_margin())
+    }
+
+    /// The spawn margin of a model by name, for a snake that does not exist
+    /// yet.
+    fn spawn_margin_for(&self, model_name: &str) -> f32 {
+        self.models
+            .get(model_name)
+            .map(|model| self.spawn_margin(model))
+            .unwrap_or_else(|| self.widest_spawn_margin())
+    }
+
+    /// Moves back inside the disc every snake whose body ended up outside it,
+    /// while the spawn grace still has it frozen and the move is invisible.
+    ///
+    /// Two holes close here, and they are the same hole seen twice:
+    ///
+    ///   * `spawn_actor` / `reset_actor` / `spawn_scripted_actor` are called
+    ///     by the engine OUTSIDE the fixed step, and `self.arena` /
+    ///     `self.spawn_slots` are rebuilt only inside it. `_startRound`
+    ///     (`RoundManager`) swaps the map and places every actor in ONE
+    ///     synchronous pass, so a round restart after a resize lays everyone
+    ///     out on the geometry of the previous disc — a shrink then puts them
+    ///     outside the new one;
+    ///   * a snake in grace is skipped by section 1 and therefore by the
+    ///     boundary test in section 2, so a shrink that happens over its two
+    ///     frozen seconds leaves it standing outside the ring, visible and
+    ///     blinking, until the grace runs out and the boundary kills it.
+    ///
+    /// The grace is neither reset nor extended: the remainder is read off the
+    /// snake and handed straight back (`Snake::grace_left`).
+    fn reseat_stranded(
+        &mut self,
+        rng: &mut Rng,
+        map_points: &[[f32; 3]],
+        events: &mut Vec<CoreEvent>,
+    ) {
+        if self.arena.radius <= 0.0 {
+            return;
+        }
+
+        // collected first: the search below reads every snake, so it cannot
+        // run while one of them is borrowed mutably
+        let stranded: Vec<u32> = self
+            .snakes
+            .iter()
+            .filter(|(_, snake)| snake.alive && snake.in_grace())
+            .filter(|(_, snake)| {
+                !snake
+                    .path
+                    .nodes()
+                    .all(|node| self.arena.contains(*node, 0.0))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in stranded {
+            let margin = self.spawn_margin_of(id);
+            let spot = self.find_spawn(rng, map_points, margin);
+            let start = self.world.start_crystals;
+
+            let Some(snake) = self.snakes.get_mut(&id) else {
+                continue;
+            };
+
+            let grace = snake.grace_left();
+
+            let Some(model) = self.models.get(&snake.model) else {
+                continue;
+            };
+
+            snake.respawn(spot[0], spot[1], spot[2], start, grace, model);
+
+            Self::push_vitals(events, id, snake, model);
+        }
+    }
+
     /// A spot far enough from every existing body to be worth spawning on.
     /// Falls back to a map respawn point, and then to the arena centre — a
     /// crowded arena must still hand out a position rather than refuse one.
@@ -319,7 +424,10 @@ impl SnakesSim {
 
         // no disc yet — `Arena` is rebuilt from `ctx.map` on the fixed step and
         // there has not been one. There is nothing to search, so the engine's
-        // point stands, exactly as it did before this search existed.
+        // point stands, exactly as it did before this search existed. It is
+        // not a guarantee dropped: `reseat_stranded` re-checks every frozen
+        // body against the disc on the very first step, which is also the
+        // first moment there IS one.
         if self.arena.radius <= 0.0 {
             return requested;
         }
@@ -337,7 +445,7 @@ impl SnakesSim {
         // subtraction below would underflow. The fallback scan is exactly the
         // case for it
         if slots == 0 {
-            return self.find_spawn_off_slots(seed, requested, skip, margin);
+            return self.find_spawn_off_slots(seed, skip, margin);
         }
 
         let bits = usize::BITS - (slots - 1).leading_zeros();
@@ -380,7 +488,7 @@ impl SnakesSim {
 
         debug_assert_eq!(tried, slots, "the walk must visit every slot exactly once");
 
-        self.find_spawn_off_slots(seed, requested, skip, margin)
+        self.find_spawn_off_slots(seed, skip, margin)
     }
 
     /// Last resort of `find_spawn_from`: every respawn point of the map is
@@ -393,13 +501,7 @@ impl SnakesSim {
     /// `--determinism`) and «spread out». Anything that reads the map's
     /// geometry belongs in `src/data/maps/arena.js`, which is where the
     /// candidates above come from.
-    fn find_spawn_off_slots(
-        &self,
-        seed: usize,
-        requested: [f32; 3],
-        skip: Option<u32>,
-        margin: f32,
-    ) -> [f32; 3] {
+    fn find_spawn_off_slots(&self, seed: usize, skip: Option<u32>, margin: f32) -> [f32; 3] {
         const RINGS: usize = 64;
         const SPAN: f32 = 0.9;
 
@@ -431,9 +533,14 @@ impl SnakesSim {
             }
         }
 
+        // `RINGS` is a non-zero constant, so `best` is always set by the loop
+        // above — but the fallback is the arena centre rather than the
+        // requested point all the same: every other exit of this function
+        // returns a point this function has checked, and one that does not
+        // would be the hole the whole search exists to close.
         match best {
             Some((point, _)) => self.facing_centre(point),
-            None => requested,
+            None => self.facing_centre(self.arena.centre),
         }
     }
 
@@ -451,10 +558,15 @@ impl SnakesSim {
     /// gets a `custom` event to update the stat table with.
     ///
     /// Deliberately NOT `CoreEvent::Death` — see the note at the top.
+    ///
+    /// `arena` is here for the pile alone: a snake killed by the boundary is
+    /// lying half outside the disc, and `drop_at` is what tucks its crystals
+    /// back in.
     fn kill(
         snakes: &mut IndexMap<u32, Snake>,
         field: &mut CrystalField,
         world: &WorldConfig,
+        arena: &Arena,
         rng: &mut Rng,
         events: &mut Vec<CoreEvent>,
         id: u32,
@@ -494,7 +606,7 @@ impl SnakesSim {
                 .map(|(index, _)| index)
                 .unwrap_or(0);
 
-            if !field.drop_at(spot, tier as u8, rng, world) {
+            if !field.drop_at(spot, tier as u8, rng, world, arena) {
                 break;
             }
 
@@ -537,12 +649,7 @@ impl SnakesSim {
     ) {
         // the margin is read before the snake is borrowed mutably: it is a
         // plain f32, so the model borrow ends on this line
-        let margin = self
-            .snakes
-            .get(&id)
-            .and_then(|snake| self.models.get(&snake.model))
-            .map(|model| self.spawn_margin(model))
-            .unwrap_or(self.world.edge_margin);
+        let margin = self.spawn_margin_of(id);
         let spot = self.find_spawn(rng, map_points, margin);
         let start = self.world.start_crystals;
 
@@ -573,8 +680,15 @@ impl SnakesSim {
             data: json!({ "type": "respawn", "id": id }),
         });
 
-        // the newcomer's canvas has none of the crystal deltas so far
-        self.field.request_resync();
+        // NO `request_resync()` here, and that is the point: a resync re-sends
+        // the whole field (up to 60 rows of four fields, on the reliable
+        // channel) to EVERY client. `spawn_actor` needs one because a joining
+        // client has seen no delta at all — a respawn is the opposite case,
+        // the client has had every delta since it joined and its field is
+        // already right. One life is one game here (`src/host/StatBridge.js`),
+        // so respawns are the most frequent event in the room: resyncing on
+        // each of them is the whole field, several times a second, for
+        // nothing.
     }
 
     /// Steers one bot for one AI tick.
@@ -683,6 +797,7 @@ impl GameSim<SnakesGame> for SnakesSim {
             world,
             arena: Arena::default(),
             population: usize::MAX,
+            since_sweep: 0,
             spawn_slots: Vec::new(),
             field: CrystalField::default(),
             snakes: IndexMap::new(),
@@ -781,12 +896,7 @@ impl GameSim<SnakesGame> for SnakesSim {
     ) {
         let start = self.world.start_crystals;
         let grace = self.world.spawn_grace_seconds;
-        let margin = self
-            .snakes
-            .get(&game_id)
-            .and_then(|snake| self.models.get(&snake.model))
-            .map(|model| self.spawn_margin(model))
-            .unwrap_or(self.world.edge_margin);
+        let margin = self.spawn_margin_of(game_id);
         let [x, y] = self.arena.clamp_inside([x, y], margin);
         // the snake being reset is still alive and still dragging its old
         // body: its own body must not be what pushes it off a free point
@@ -833,11 +943,7 @@ impl GameSim<SnakesGame> for SnakesSim {
     ) -> Result<(), String> {
         // a bot HAS an rng, so it gets the ordinary randomised search rather
         // than the deterministic walk `spawn_actor` falls back to
-        let margin = self
-            .models
-            .get(model_name)
-            .map(|model| self.spawn_margin(model))
-            .unwrap_or(self.world.edge_margin);
+        let margin = self.spawn_margin_for(model_name);
         let [x, y] = self.arena.clamp_inside([x, y], margin);
         let spot = if self.is_clear([x, y]) {
             [x, y, angle_deg]
@@ -1019,6 +1125,12 @@ impl GameSim<SnakesGame> for SnakesSim {
             self.spawn_slots = map_points.clone();
         }
 
+        // Before anything moves, and with the disc and the slots of THIS map
+        // already in hand: whoever was placed on the previous geometry — or
+        // caught outside by a shrink while frozen — is moved back in while
+        // the grace still hides the move.
+        self.reseat_stranded(ctx.rng, &map_points, ctx.events);
+
         let world = self.world.clone();
 
         self.field.tick(dt, &self.arena, ctx.rng, &world);
@@ -1062,7 +1174,7 @@ impl GameSim<SnakesGame> for SnakesSim {
             for spot in outcome.burned {
                 let tier = roll_tier(ctx.rng, &world);
 
-                self.field.drop_at(spot, tier, ctx.rng, &world);
+                self.field.drop_at(spot, tier, ctx.rng, &world, &self.arena);
             }
 
             if burned > 0 {
@@ -1205,6 +1317,7 @@ impl GameSim<SnakesGame> for SnakesSim {
                 &mut snakes,
                 &mut self.field,
                 &world,
+                &self.arena,
                 ctx.rng,
                 ctx.events,
                 id,
@@ -1217,7 +1330,20 @@ impl GameSim<SnakesGame> for SnakesSim {
         // Last, so that everything this step could have dropped outside a
         // freshly shrunken disc goes with it: the boost's fuel, the piles of
         // the snakes the shrink just killed, and the natural spawn.
-        if arena_changed {
+        //
+        // The shrink is the moment that makes the mess, so it is swept at
+        // once; the periodic sweep behind it is the INVARIANT, not the fix —
+        // nothing may leave an unreachable crystal on the field, and a rule
+        // that only runs on a resize is a rule that holds until the next
+        // feature drops a crystal somewhere else. `drop_at` clamps at the
+        // source, so this should never find anything: it is the cheap proof
+        // that it does not. The field is capped at `max_crystals` (60), so a
+        // pass is 60 squared distances once a second.
+        self.since_sweep += 1;
+
+        if arena_changed || self.since_sweep >= SWEEP_EVERY_STEPS {
+            self.since_sweep = 0;
+
             // the count is deliberately dropped here: the core has no logger
             // (it is a wasm module talking through events alone), and the
             // number is worth an event to nobody — the clients learn about
@@ -2051,6 +2177,134 @@ mod tests {
             .count();
 
         assert_eq!(stranded, 0, "the shrink stranded a death pile");
+    }
+
+    /// A game on a `cols`-cell map with a spawn grace, for the reseat cases.
+    fn game_on(cols: usize, grace: f32, max_crystals: u32) -> GameState {
+        let mut value = config_json(grace);
+
+        value["models"]["s1"]["world"]["maxCrystals"] = json!(max_crystals);
+
+        let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
+        let engine: EngineConfig = serde_json::from_value(value).unwrap();
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(&map_json_of(cols)).unwrap();
+
+        game
+    }
+
+    /// Every node of the body, inside the disc the core is enforcing.
+    fn body_is_inside(game: &GameState, id: u32) -> bool {
+        let snake = game.sim.snakes.get(&id).unwrap();
+
+        snake
+            .path
+            .nodes()
+            .all(|node| game.sim.arena.contains(*node, 0.0))
+    }
+
+    #[test]
+    fn a_spawn_on_a_stale_arena_is_reseated_on_the_next_step() {
+        // `spawn_actor` runs OUTSIDE the fixed step and `self.arena` is
+        // rebuilt only inside it, so a spawn placed straight after a map swap
+        // is validated against the PREVIOUS disc. `RoundManager._startRound`
+        // does exactly that: `createMap` and then every `spawn_actor`, in one
+        // synchronous pass. On a shrink the snake lands outside the new ring.
+        let mut game = game_on(40, 2.0, 0);
+
+        game.step(DT);
+
+        // the host shrinks the arena and the engine restarts the round: no
+        // step happens in between
+        game.load_map(&map_json_of(20)).unwrap();
+        // valid on the 40-cell disc (radius 2560, centre 2560), far outside
+        // the 20-cell one (radius 1280, centre 1280)
+        game.spawn_actor(1, "s1", 1, 4000.0, 2560.0, 0.0).unwrap();
+
+        // the disc the map now describes — `self.arena` is still the old one,
+        // which is the bug
+        let shrunk = Arena {
+            centre: [1280.0, 1280.0],
+            radius: 1280.0,
+        };
+        let placed = game.sim.snakes[&1].head();
+
+        assert!(
+            !shrunk.contains(placed, 0.0),
+            "the stale spawn landed inside anyway — the case is not tested"
+        );
+
+        game.step(DT);
+
+        assert!(game.sim.snakes[&1].alive, "the reseat killed it instead");
+        assert!(
+            body_is_inside(&game, 1),
+            "a body was left hanging out of the disc after the first step"
+        );
+    }
+
+    #[test]
+    fn a_grace_snake_caught_by_a_shrink_is_reseated_not_stranded() {
+        // The other way in: the snake was placed correctly and the arena
+        // shrank under it while the grace still had it frozen. Section 1
+        // skips a snake in grace, so section 2 never tests its head against
+        // the boundary — it stands outside the ring, blinking, for the rest
+        // of the grace.
+        let mut game = game_on(40, 2.0, 0);
+
+        game.step(DT);
+        // in the ring the shrink is about to take away
+        game.spawn_actor(1, "s1", 1, 4800.0, 2560.0, 0.0).unwrap();
+
+        let before = game.sim.snakes[&1].grace_left();
+
+        game.load_map(&map_json_of(20)).unwrap();
+        game.step(DT);
+
+        assert!(game.sim.snakes[&1].alive, "the shrink killed a frozen snake");
+        assert!(body_is_inside(&game, 1), "reseated outside the disc");
+
+        // the grace is neither refreshed nor extended: a reseat that handed
+        // out two fresh seconds would be a way to stay unkillable
+        assert!(
+            game.sim.snakes[&1].grace_left() <= before,
+            "the reseat refreshed the spawn grace"
+        );
+    }
+
+    #[test]
+    fn a_death_at_the_boundary_leaves_no_unreachable_crystals() {
+        // `kill` lays the pile out along the BODY, and the body of a snake
+        // killed by the edge reaches past it. Nothing else sweeps here — the
+        // arena did not change — so this is `drop_at` clamping at the source
+        // rather than `retain_inside` cleaning up afterwards.
+        let mut game = game_on(20, 0.0, 60);
+
+        // straight at the edge, close enough to reach it before anything else
+        // happens, and carrying a pile worth dropping
+        game.spawn_actor(1, "s1", 1, 1280.0, 1280.0, 0.0).unwrap();
+        game.sim.snakes.get_mut(&1).unwrap().crystals = 200;
+
+        for _ in 0..4000 {
+            game.step(DT);
+
+            if !game.sim.snakes[&1].alive {
+                break;
+            }
+        }
+
+        assert!(!game.sim.snakes[&1].alive, "it never reached the boundary");
+
+        let arena = game.sim.arena;
+        let stranded = game
+            .sim
+            .field
+            .iter()
+            .filter(|(_, crystal)| !arena.contains([crystal.x, crystal.y], 0.0))
+            .count();
+
+        assert_eq!(stranded, 0, "the death pile hangs outside the disc");
     }
 
     #[test]

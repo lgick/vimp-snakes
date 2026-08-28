@@ -183,6 +183,14 @@ impl Snake {
         self.spawn_grace > 0.0
     }
 
+    /// How much of the spawn grace is left, in seconds. Read by
+    /// `SnakesSim::reseat_stranded`, which moves a frozen snake inside the
+    /// disc and must hand the SAME remainder back to `respawn` — a reseat
+    /// that refreshed the grace would be a way to stay unkillable for ever.
+    pub fn grace_left(&self) -> f32 {
+        self.spawn_grace
+    }
+
     /// Burns one fixed step off the grace. Called INSTEAD of `step`, which is
     /// what freezing the snake means.
     pub fn tick_grace(&mut self, dt: f32) {

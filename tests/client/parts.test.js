@@ -4,7 +4,9 @@ import parts from '../../src/client/parts/index.js';
 import crystalGem from '../../src/client/bakers/crystalGem.js';
 import crown from '../../src/client/bakers/crown.js';
 import mapData from '../../src/data/maps/arena.js';
-import { CRYSTAL_TIERS } from '../../src/data/palette.js';
+import { CRYSTAL_TIERS, SNAKE_COLORS } from '../../src/data/palette.js';
+import { SNAKE } from '../../src/data/theme.js';
+import { badgeInk, contrast } from '../../src/client/parts/Snake.js';
 
 // Parts are constructed inside the render tick, on a path with no try/catch
 // anywhere: an exception in a constructor aborts the whole frame, so every
@@ -260,6 +262,72 @@ describe('Snake', () => {
 
     plain.destroy();
     top.destroy();
+  });
+
+  // The badges are the game's only visible reward and they were painted by
+  // mixing the BODY colour towards white — which is invisible on exactly the
+  // snakes whose body is already light. A white snake's diamond came out at
+  // 1.04:1 against its own body. Both cases below walk the whole palette, so a
+  // colour appended tomorrow (`palette.js`: append, never insert) cannot bring
+  // the badges back below the line.
+  const MIN_CONTRAST = 3;
+
+  it('paints the diamonds in an ink that reads on every body colour', () => {
+    for (const color of SNAKE_COLORS) {
+      const [ink, edge] = badgeInk(color);
+
+      expect(contrast(color, ink)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+      // and the outline is the other ink, which is what makes the diamond
+      // read over the boost glow and the darker inner stroke as well
+      expect(edge).not.toBe(ink);
+      expect(contrast(ink, edge)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    }
+  });
+
+  it('gives the crown a silhouette that reads on every body colour', () => {
+    // the gold itself is 1.04:1 on a yellow head and stays gold — it is the
+    // dark sprite underneath that carries the shape
+    for (const color of SNAKE_COLORS) {
+      expect(
+        contrast(color, SNAKE.accolade.crownOutline),
+      ).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    }
+  });
+
+  it('wears the crown as two sprites, the silhouette under the gold', () => {
+    const snake = new Snake(
+      snakeRow({ points: [[10, 20]], angle: 0, radius: 20 }),
+      { crown: Texture.EMPTY },
+      { accolades: accoladesFor({ monthly: 1 }) },
+      { id: '01' },
+    );
+
+    expect(snake._crownEdge.tint).toBe(SNAKE.accolade.crownOutline);
+    expect(snake._crown.tint).toBe(SNAKE.accolade.crownTint);
+    // same spot and lean, only bigger — and drawn first, so the gold covers it
+    expect(snake._crownEdge.x).toBeCloseTo(snake._crown.x);
+    expect(snake._crownEdge.y).toBeCloseTo(snake._crown.y);
+    expect(snake._crownEdge.rotation).toBeCloseTo(snake._crown.rotation);
+    expect(snake._crownEdge.scale.x).toBeGreaterThan(snake._crown.scale.x);
+    expect(snake.getChildIndex(snake._crownEdge)).toBeLessThan(
+      snake.getChildIndex(snake._crown),
+    );
+
+    snake.destroy();
+  });
+
+  it('hides the crown silhouette with the crown', () => {
+    const snake = new Snake(
+      snakeRow(),
+      { crown: Texture.EMPTY },
+      { accolades: accoladesFor() },
+      { id: '01' },
+    );
+
+    expect(snake._crown.visible).toBe(false);
+    expect(snake._crownEdge.visible).toBe(false);
+
+    snake.destroy();
   });
 
   it('shows the monthly crown over the head and turns it with the snake', () => {

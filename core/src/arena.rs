@@ -7,7 +7,7 @@
 //! already have:
 //!
 //! ```text
-//! radius = min(cols * step, rows * step) / 2,  centre = (w / 2, h / 2)
+//! radius = min(cols, rows) * step / 2,  centre = (cols * step / 2, rows * step / 2)
 //! ```
 //!
 //! `src/data/maps/arena.js` documents the same formula and

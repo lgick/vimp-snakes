@@ -106,18 +106,32 @@ impl CrystalField {
     /// Drops a crystal at an exact spot — the boost tax and the pile a dead
     /// snake leaves. Refused once the field is full, so a chain of deaths
     /// cannot flood the map.
+    ///
+    /// The spot is pulled onto the disc first, and that is a hard invariant of
+    /// the field rather than a nicety: BOTH callers drop along a body, and a
+    /// body reaches outside the disc every time a snake dies on the boundary
+    /// (which is how most of them die). A crystal left out there is
+    /// UNREACHABLE for ever — see `retain_inside` for the arithmetic — and it
+    /// keeps counting against `max_crystals`, so a few of them are enough to
+    /// stop the field refilling at all. `clamp_inside` is a no-op on a point
+    /// that is already in, and on a radius of zero (no map yet).
+    ///
+    /// The pile of a snake killed by the edge is therefore tucked slightly
+    /// inwards. That is the right place for it: inside is where it can be
+    /// collected.
     pub fn drop_at(
         &mut self,
         point: [f32; 2],
         tier: u8,
         rng: &mut Rng,
         world: &WorldConfig,
+        arena: &Arena,
     ) -> bool {
         if self.crystals.len() >= world.max_crystals {
             return false;
         }
 
-        self.insert(point, tier, rng);
+        self.insert(arena.clamp_inside(point, world.edge_margin), tier, rng);
 
         true
     }
@@ -291,6 +305,16 @@ mod tests {
         model().world
     }
 
+    /// A disc big enough to hold every point these tests use, for the ones
+    /// that are not about the boundary at all — `drop_at` clamps onto the
+    /// disc, so a small arena would silently move the crystal under the test.
+    fn anywhere() -> Arena {
+        Arena {
+            centre: [0.0, 0.0],
+            radius: 1.0e6,
+        }
+    }
+
     #[test]
     fn the_field_fills_to_the_cap_and_stops() {
         let mut field = CrystalField::default();
@@ -312,7 +336,7 @@ mod tests {
         world.tiers.truncate(1);
         world.tier_weights.truncate(1);
 
-        field.drop_at([100.0, 100.0], 0, &mut rng, &world);
+        field.drop_at([100.0, 100.0], 0, &mut rng, &world, &anywhere());
 
         assert_eq!(field.take_at([500.0, 500.0], 14.0, &world), None);
         assert_eq!(field.take_at([105.0, 100.0], 14.0, &world), Some(1));
@@ -325,7 +349,7 @@ mod tests {
         let mut rng = Rng::new(7);
         let world = world();
 
-        field.drop_at([10.0, 20.0], 0, &mut rng, &world);
+        field.drop_at([10.0, 20.0], 0, &mut rng, &world, &anywhere());
 
         let rows = field.drain_block().expect("a spawn is a delta");
 
@@ -342,7 +366,7 @@ mod tests {
         let mut rng = Rng::new(7);
         let world = world();
 
-        field.drop_at([10.0, 20.0], 0, &mut rng, &world);
+        field.drop_at([10.0, 20.0], 0, &mut rng, &world, &anywhere());
         field.drain_block();
 
         field.take_at([10.0, 20.0], 30.0, &world);
@@ -359,7 +383,7 @@ mod tests {
         let mut rng = Rng::new(7);
         let world = world();
 
-        field.drop_at([10.0, 20.0], 0, &mut rng, &world);
+        field.drop_at([10.0, 20.0], 0, &mut rng, &world, &anywhere());
         field.take_at([10.0, 20.0], 30.0, &world);
 
         assert!(field.drain_block().is_none());
@@ -372,7 +396,7 @@ mod tests {
         let world = world();
 
         for i in 0..5 {
-            field.drop_at([i as f32 * 10.0, 0.0], 0, &mut rng, &world);
+            field.drop_at([i as f32 * 10.0, 0.0], 0, &mut rng, &world, &anywhere());
         }
 
         field.drain_block();
@@ -385,6 +409,32 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_outside_the_disc_is_pulled_in() {
+        // `drop_at` is called with points taken off a BODY — the boost tax
+        // behind the tail and the pile of a dead snake — and a snake dies at
+        // the boundary more often than anywhere else, so those points are
+        // routinely outside. A crystal left there can never be eaten and
+        // still counts against `max_crystals`.
+        let mut field = CrystalField::default();
+        let mut rng = Rng::new(7);
+        let world = world();
+        let arena = Arena {
+            centre: [0.0, 0.0],
+            radius: 1000.0,
+        };
+
+        assert!(field.drop_at([5000.0, 0.0], 0, &mut rng, &world, &arena));
+
+        let (_, crystal) = field.iter().next().expect("the drop was accepted");
+
+        assert!(
+            arena.contains([crystal.x, crystal.y], world.edge_margin),
+            "dropped at {:?}, which is outside the disc",
+            [crystal.x, crystal.y]
+        );
+    }
+
+    #[test]
     fn a_shrunken_arena_drops_the_crystals_it_no_longer_holds() {
         let mut field = CrystalField::default();
         let mut rng = Rng::new(7);
@@ -392,11 +442,11 @@ mod tests {
         let big = Arena { centre: [0.0, 0.0], radius: 1000.0 };
         let small = Arena { centre: [0.0, 0.0], radius: 500.0 };
 
-        field.drop_at([0.0, 0.0], 0, &mut rng, &world);
-        field.drop_at([400.0, 0.0], 0, &mut rng, &world);
+        field.drop_at([0.0, 0.0], 0, &mut rng, &world, &big);
+        field.drop_at([400.0, 0.0], 0, &mut rng, &world, &big);
         // inside the big disc, outside the small one — this is the crystal
         // the snake could see and never eat
-        field.drop_at([800.0, 0.0], 0, &mut rng, &world);
+        field.drop_at([800.0, 0.0], 0, &mut rng, &world, &big);
         field.drain_block();
 
         assert_eq!(field.retain_inside(&big), 0, "nothing to drop yet");

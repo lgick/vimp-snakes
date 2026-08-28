@@ -58,14 +58,45 @@ function placed(place) {
   return place !== null && place !== undefined;
 }
 
-/// Lightens a hex colour towards white by `amount` (0..1).
-function lighten(color, amount) {
-  const mix = channel => Math.round(channel + (0xff - channel) * amount);
-  const r = mix((color >> 16) & 0xff);
-  const g = mix((color >> 8) & 0xff);
-  const b = mix(color & 0xff);
+/// Relative luminance of a hex colour (WCAG 2.1), 0..1.
+export function luminance(color) {
+  const channel = value => {
+    const v = value / 0xff;
 
-  return (r << 16) | (g << 8) | b;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+
+  return (
+    0.2126 * channel((color >> 16) & 0xff) +
+    0.7152 * channel((color >> 8) & 0xff) +
+    0.0722 * channel(color & 0xff)
+  );
+}
+
+/// WCAG contrast ratio between two hex colours, 1..21.
+export function contrast(a, b) {
+  const la = luminance(a);
+  const lb = luminance(b);
+
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/// The ink a badge is painted in on a body of `color`, and the one it is
+/// outlined in: `[fill, edge]`.
+///
+/// Whichever of the two inks stands out MORE against the body wins — not a
+/// lightness threshold. A threshold gets the extremes right and the middle
+/// wrong: pink (luminance 0.33) is dark enough to ask for the light ink and
+/// only reaches 2.7:1 against it, while the dark ink gives it 6.4:1. Taking
+/// the better of the two is 4:1 or more on every colour of `SNAKE_COLORS`,
+/// and it keeps being true for a colour appended tomorrow —
+/// `tests/client/parts.test.js` walks the whole palette and says so.
+export function badgeInk(color) {
+  const { inkDark, inkLight } = SNAKE.accolade;
+
+  return contrast(color, inkDark) >= contrast(color, inkLight)
+    ? [inkDark, inkLight]
+    : [inkLight, inkDark];
 }
 
 /// Darkens a hex colour towards black by `amount` (0..1).
@@ -150,9 +181,20 @@ export default class Snake extends Container {
 
     // the crown of the monthly top ten, baked white by src/client/bakers/
     // crown.js and tinted here. Built once and hidden until the place says
-    // otherwise; an engine that baked nothing (or a test) leaves it null and
-    // the snake simply wears no crown
-    this._crown = assets?.crown ? this._buildCrown(assets.crown) : null;
+    // otherwise; an engine that baked nothing (or a test) leaves both null and
+    // the snake simply wears no crown.
+    //
+    // TWO sprites of the one texture: a dark silhouette slightly larger,
+    // underneath, and the gold crown on top. Gold on a yellow or white head is
+    // 1.04:1 and simply is not there; the silhouette gives the badge an edge
+    // that owes nothing to the body colour. One extra batched draw on at most
+    // ten snakes, and no second baked asset.
+    this._crownEdge = assets?.crown
+      ? this._buildCrown(assets.crown, SNAKE.accolade.crownOutline)
+      : null;
+    this._crown = assets?.crown
+      ? this._buildCrown(assets.crown, SNAKE.accolade.crownTint)
+      : null;
 
     // the graphics hold world coordinates directly, so the container itself
     // never moves — the head position has to be remembered rather than read
@@ -256,12 +298,16 @@ export default class Snake extends Container {
   // every n-th vertex — the vertices bunch up where the snake turns, and a
   // pattern that bunched with them would read as a rendering fault.
   _drawDiamonds(curve, radius, color) {
-    const { diamondEvery, diamondLong, diamondWide, diamondLighten } =
+    const { diamondEvery, diamondLong, diamondWide, diamondStroke } =
       SNAKE.accolade;
     const graphics = this._body;
     const spacing = radius * diamondEvery;
     const long = radius * diamondLong;
     const wide = radius * diamondWide;
+    // the pair is the same for every diamond of this snake, so it is decided
+    // once rather than per diamond
+    const [ink, edge] = badgeInk(color);
+    const edgeWidth = radius * diamondStroke;
 
     // half a step in, so a short snake still gets one and the head keeps its
     // own shape clean
@@ -290,7 +336,12 @@ export default class Snake extends Container {
         graphics.lineTo(cx - ty * wide, cy + tx * wide);
         graphics.lineTo(cx - tx * long, cy - ty * long);
         graphics.lineTo(cx + ty * wide, cy - tx * wide);
-        graphics.fill(lighten(color, diamondLighten));
+        graphics.closePath();
+        // fill then stroke over the SAME path: PixiJS v8 keeps the path in
+        // progress until the next `moveTo`, which is what makes the outline
+        // land on the diamond just filled
+        graphics.fill(ink);
+        graphics.stroke({ width: edgeWidth, color: edge });
 
         walked += spacing;
       }
@@ -327,13 +378,16 @@ export default class Snake extends Container {
     }
   }
 
-  /// The crown sprite, hidden until a place says otherwise. Anchored at the
+  /// One crown sprite, hidden until a place says otherwise. Anchored at the
   /// bottom middle so the rotation turns it around the point it sits on.
-  _buildCrown(texture) {
+  ///
+  /// Called twice, and the order of the calls is the stacking order: the
+  /// silhouette is added first and the gold one over it.
+  _buildCrown(texture, tint) {
     const sprite = new Sprite(texture);
 
     sprite.anchor.set(0.5, 1);
-    sprite.tint = SNAKE.accolade.crownTint;
+    sprite.tint = tint;
     sprite.visible = false;
 
     this.addChild(sprite);
@@ -351,19 +405,37 @@ export default class Snake extends Container {
 
     this._crown.visible = crowned;
 
+    if (this._crownEdge) {
+      this._crownEdge.visible = crowned;
+    }
+
     if (!crowned) {
       return;
     }
 
-    const { crownScale, crownLift } = SNAKE.accolade;
+    const { crownScale, crownLift, crownOutlineScale } = SNAKE.accolade;
     const size = radius * crownScale;
-
-    this._crown.scale.set(size / this._crown.texture.width);
-    this._crown.rotation = angle + Math.PI / 2;
+    const scale = size / this._crown.texture.width;
+    const rotation = angle + Math.PI / 2;
     // pushed out along the facing, so it rides the forehead rather than the
     // middle of the head
-    this._crown.x = x + Math.cos(angle) * radius * crownLift;
-    this._crown.y = y + Math.sin(angle) * radius * crownLift;
+    const cx = x + Math.cos(angle) * radius * crownLift;
+    const cy = y + Math.sin(angle) * radius * crownLift;
+
+    this._crown.scale.set(scale);
+    this._crown.rotation = rotation;
+    this._crown.x = cx;
+    this._crown.y = cy;
+
+    // same place, same lean, only bigger: the anchor is the bottom middle, so
+    // the silhouette grows around the point the crown sits on and shows as a
+    // rim on every side
+    if (this._crownEdge) {
+      this._crownEdge.scale.set(scale * crownOutlineScale);
+      this._crownEdge.rotation = rotation;
+      this._crownEdge.x = cx;
+      this._crownEdge.y = cy;
+    }
   }
 
   /// True while this part draws the snake of the player sitting at this tab.

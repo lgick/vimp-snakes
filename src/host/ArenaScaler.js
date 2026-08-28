@@ -27,12 +27,15 @@ import { arenaSizeFor, buildArena, PLAYER_STEP } from '../data/maps/arena.js';
 //     client destroys the parts of this `setId`, rebuilds them from the
 //     payload and re-runs `clientCore.set_map`. The client half derives the
 //     ring from the same grid, so it needs no other channel and no new field;
-//   * `vimp.overrideMapData(mapData)` -> `RoundManager._scaledMapData`, which
-//     is the table of respawn points the engine hands out at the start of a
-//     round. It is the ROOM's map — the base size — and the engine has no
-//     other way to learn about a map the game swapped underneath it, so
-//     without this a round restart (`/bot`, `/nr`) places everyone on the
-//     geometry of a disc that no longer exists.
+//   * `vimp.overrideMapData(mapData)` -> `RoundManager`, which holds the
+//     ROOM's map — the base size — in two copies: the table of respawn points
+//     it hands out at the start of a round, and the map it sends a client that
+//     is JOINING. The engine has no other way to learn about a map the game
+//     swapped underneath it, so without this a round restart (`/bot`, `/nr`)
+//     places everyone on the geometry of a disc that no longer exists, and
+//     everybody who connects between two resizes draws the catalog circle
+//     until `_broadcast` below catches them up (vimp-engine >= 0.22.1 replaces
+//     both copies; the broadcast is the safety net, not the main channel).
 //
 // The client answers MAP_DATA with MAP_READY, and the engine's `mapReady`
 // handler is a no-op for a player who is already loaded on this map name —
@@ -73,10 +76,16 @@ export default class ArenaScaler {
     this._size = null;
     this._mapData = null;
 
-    // gameId -> the size that client last received. A player who joined
-    // between two resizes was handed the CATALOG map by the engine, which is
-    // the base size and not necessarily the one in force; the next event
-    // catches them up.
+    // socketId -> the size that client last received. A player who joined
+    // between two resizes may have been handed a map of another size by the
+    // engine; the next event catches them up.
+    //
+    // The key is the SOCKET, not the gameId: the engine hands out the
+    // smallest free gameId (`ParticipantManager._nextGameId`), so ids are
+    // REUSED. Keyed by gameId, a player who joins onto the id of one who just
+    // left inherits their entry — `_delivered.get(id) === _size` is true
+    // before that client has been sent anything at all, and it then draws the
+    // base circle for the whole match while the core enforces another one.
     this._delivered = new Map();
   }
 
@@ -151,24 +160,28 @@ export default class ArenaScaler {
 
     const humans = this._participants.getHumans();
 
+    const live = new Set();
+
     for (const user of humans) {
-      if (!user.isReady || this._delivered.get(user.gameId) === this._size) {
+      live.add(user.socketId);
+
+      if (!user.isReady || this._delivered.get(user.socketId) === this._size) {
         continue;
       }
 
-      this._delivered.set(user.gameId, this._size);
+      this._delivered.set(user.socketId, this._size);
       this._socketManager.sendMap(user.socketId, this._mapData);
     }
 
-    // a room that has been running for hours has seen far more ids than it
-    // holds; the bookkeeping must not grow with the ones that left
-    if (this._delivered.size > humans.length) {
-      const live = new Set(humans.map(user => user.gameId));
-
-      for (const gameId of this._delivered.keys()) {
-        if (!live.has(gameId)) {
-          this._delivered.delete(gameId);
-        }
+    // A room that has been running for hours has seen far more sockets than
+    // it holds, so the bookkeeping must not grow with the ones that left —
+    // and the prune is UNCONDITIONAL. Doing it only when the map is bigger
+    // than the room misses the case that matters: one player leaves and
+    // another joins between two events, and the size never changes. This runs
+    // on `population`, i.e. only when the number of snakes moved.
+    for (const socketId of this._delivered.keys()) {
+      if (!live.has(socketId)) {
+        this._delivered.delete(socketId);
       }
     }
   }
