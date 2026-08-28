@@ -21,6 +21,13 @@ export const SNAKE_COLORS = [
   0xffa4a4, // salmon
 ];
 
+// The same colour as a CSS string. The client draws with the NUMBER (PixiJS
+// tints are numbers); the host needs the hex form for one thing only — the
+// colour of the player's nickname in chat, which the engine takes as
+// '#rrggbb' (`participants.setChatColor`). One table, two readings.
+export const snakeColorCss = index =>
+  `#${SNAKE_COLORS[index % SNAKE_COLORS.length].toString(16).padStart(6, '0')}`;
+
 // Crystals use their own, cooler table so that a crystal is never mistaken for
 // a very small snake at a glance.
 export const CRYSTAL_COLORS = [

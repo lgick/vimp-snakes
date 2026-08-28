@@ -1,4 +1,4 @@
-// Vimp Snakes — the game simulation (movement, growth, collisions) on top of
+// VIMP Snakes — the game simulation (movement, growth, collisions) on top of
 // vimp-engine-core. Compiles to WASM for the host Worker and the browser, and
 // to a Node build for tests and the headless runner (`npm run core:build`).
 //

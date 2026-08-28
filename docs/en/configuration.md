@@ -26,7 +26,7 @@ schema from `src/data/` and `src/config/`.
 
 | Parameter | Value | Description |
 | --- | --- | --- |
-| `title` | `'Vimp Snakes'` | Shown by the lobby and the auth screen |
+| `title` | `'Snakes'` | Shown by the lobby and the auth screen |
 | `parts.models` | `src/data/models.js` | Snake classes; passed verbatim to both cores |
 | `parts.weapons` | `{}` | No weapons — the path is asserted at boot, so it exists and stays empty |
 | `parts.friendlyFire` | `false` | No such rule either; asserted, so it stays declared |

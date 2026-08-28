@@ -221,7 +221,13 @@ and swerves when the thing in front of it would kill it. They are added with
 
 ## Chat (`c` key) and commands
 
-Plain text is a message to everyone. Messages starting with `/` are commands.
+Plain text is a message to everyone, and **the author's nickname is drawn in
+the colour of their snake** — the engine's own colouring is by team, and this
+game has one team, so it would say nothing. The colour index comes from the
+core with the spawn and reaches the engine through
+`participants.setChatColor`; system messages have no author and stay red.
+
+Messages starting with `/` are commands.
 The engine parses none of its own: the `CommandProcessor` registry is filled
 entirely by the game through `HostPlugin.chatCommands`, so the set below is
 the whole set:

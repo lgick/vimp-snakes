@@ -1,4 +1,4 @@
-# Vimp Snakes
+# VIMP Snakes
 
 A VIMP game plugin (`@vimp-games/snakes`): a snake arena.
 

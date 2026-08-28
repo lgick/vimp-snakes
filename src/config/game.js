@@ -34,7 +34,7 @@ import maps from '../data/maps/index.js';
 //     kill. `src/host/StatBridge.js` writes it (and the rank next to it),
 //     reached from `onCoreEvent` through `src/host/createModules.js`.
 export default {
-  title: 'Vimp Snakes',
+  title: 'Snakes',
 
   parts: {
     models,

@@ -85,6 +85,13 @@ SnakesSim`, `core/src/game.rs`):
   throws `RESPAWN_ATTEMPTS` (24) random candidates, keeping
   `RESPAWN_CLEARANCE` (140) from every existing body. A newly spawned snake is
   laid out **whole** (`Snake::lay_out_body`) and armed with the spawn grace.
+  Because the body is laid straight backwards from the head, every candidate —
+  the engine's point, a map slot, a random throw — is held to
+  `SnakesSim::spawn_margin`, which is `edge_margin` **plus the body length**
+  and not `edge_margin` alone. The inset is radial, so it holds for any
+  heading, including the engine's own when the requested point is honoured; a
+  head on the bare `edge_margin` ring used to leave the tail outside the disc,
+  where nothing kills it.
 - **`apply_input`** — maps an action name to its bit via `KeyBits` (built from
   `gameConfig.playerKeys`); `type: 1` keys (`respawn`) are armed by `down` and
   consumed by exactly one fixed step.
@@ -115,6 +122,7 @@ The engine's standard dictionary is used only in part. `PanelSet` and
 | `burn` | `{ id, burned, total }` — emitted on every step the boost sheds crystals, `burned` counting the spots dropped that step | `StatBridge` — takes them off the score, so boosting is not free |
 | `death` | `{ id, crystals, crashes, killer }` (`killer: null` for the edge) | `StatBridge` — the kill bonus, the end of the victim's game, the saved profile |
 | `respawn` | `{ id }` | `StatBridge` — a new life is a new game, so the counters start at zero |
+| `spawn` | `{ id, color }` — the palette index the core handed out at `spawn_actor` | `ChatColors` — the colour of that player's nickname in chat |
 | `population` | `{ count }` | `ArenaScaler` — rebuilds the map; `StatBridge` — publishes newcomers' rows |
 
 Ids are **numbers** here and **strings** in the engine — everything crossing

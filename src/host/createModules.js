@@ -1,4 +1,5 @@
 import ArenaScaler from './ArenaScaler.js';
+import ChatColors from './ChatColors.js';
 import ScriptedManager from './ScriptedManager.js';
 import StatBridge from './StatBridge.js';
 
@@ -10,13 +11,15 @@ import StatBridge from './StatBridge.js';
 // socketManager, scripted } — there is no timerManager and no voteCoordinator
 // in it (those exist only in a chat-command context).
 //
-// The two modules below are kept in module-scope variables rather than
+// The three modules below are kept in module-scope variables rather than
 // returned, because the engine would ignore them either way and because
 // `onCoreEvent` has no path to them otherwise: that hook is called with
-// `{ vimp, panel }` and nothing else, while `stat`, `socketManager` and
-// `coreAdapter` only ever appear here. See StatBridge.js and ArenaScaler.js.
+// `{ vimp, panel }` and nothing else, while `stat`, `socketManager`,
+// `coreAdapter` and `participants` only ever appear here. See StatBridge.js,
+// ArenaScaler.js and ChatColors.js.
 let statBridge = null;
 let arenaScaler = null;
+let chatColors = null;
 
 export default function createModules(ctx) {
   const scripted = new ScriptedManager(ctx);
@@ -26,6 +29,7 @@ export default function createModules(ctx) {
   // hands out respawn points off the map it was last given — so it is handed
   // the instance, not `ctx.scripted` (which is the config object of that name)
   arenaScaler = new ArenaScaler(ctx, scripted);
+  chatColors = new ChatColors(ctx);
 
   return { scripted };
 }
@@ -40,4 +44,9 @@ export function getStatBridge() {
 /// The arena scaler, on the same terms as the bridge above.
 export function getArenaScaler() {
   return arenaScaler;
+}
+
+/// The chat-nickname colours, on the same terms as the bridge above.
+export function getChatColors() {
+  return chatColors;
 }

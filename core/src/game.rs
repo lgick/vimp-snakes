@@ -35,7 +35,7 @@ use crate::config::{
     KeyConfig, PANEL_CRYSTALS, PANEL_DEAD, SnakeConfig, SnakesConfig, WorldConfig,
 };
 use crate::crystals::{CrystalField, roll_tier};
-use crate::motion::SPINE_LEN;
+use crate::motion::{SPINE_LEN, length_for};
 use crate::snake::{KeyBits, Snake};
 
 /// Strings the core pushes into the panel's `activeKey` cell. There is no
@@ -250,22 +250,41 @@ impl SnakesSim {
         [point[0], point[1], dy.atan2(dx).to_degrees()]
     }
 
+    /// The clearance a SPAWN keeps from the edge, as opposed to the
+    /// `edge_margin` a crystal keeps.
+    ///
+    /// `edge_margin` insets the HEAD, and `lay_out_body` lays the whole body
+    /// straight backwards from it: a head on the `edge_margin` ring leaves the
+    /// tail a full body length outside the disc. The inset is radial, so it
+    /// holds for ANY heading — including the one `find_spawn_from` keeps when
+    /// it honours the engine's request instead of turning the snake at the
+    /// centre.
+    fn spawn_margin(&self, model: &SnakeConfig) -> f32 {
+        self.world.edge_margin + length_for(self.world.start_crystals, model)
+    }
+
     /// A spot far enough from every existing body to be worth spawning on.
     /// Falls back to a map respawn point, and then to the arena centre — a
     /// crowded arena must still hand out a position rather than refuse one.
-    fn find_spawn(&self, rng: &mut Rng, map_points: &[[f32; 3]]) -> [f32; 3] {
+    fn find_spawn(&self, rng: &mut Rng, map_points: &[[f32; 3]], margin: f32) -> [f32; 3] {
         for _ in 0..RESPAWN_ATTEMPTS {
-            let point = self.arena.random_point(rng, self.world.edge_margin);
+            let point = self.arena.random_point(rng, margin);
 
             if self.is_clear(point) {
                 return self.facing_centre(point);
             }
         }
 
-        map_points
-            .first()
-            .copied()
-            .unwrap_or([self.arena.centre[0], self.arena.centre[1], 0.0])
+        // the fallback is a point somebody else chose — the map's first
+        // respawn slot, or the centre. Only the margin is ours to enforce
+        match map_points.first() {
+            Some(spot) => {
+                let [x, y] = self.arena.clamp_inside([spot[0], spot[1]], margin);
+
+                [x, y, spot[2]]
+            }
+            None => [self.arena.centre[0], self.arena.centre[1], 0.0],
+        }
     }
 
     /// The same search without an `Rng`, for the one path that has none: the
@@ -288,13 +307,27 @@ impl SnakesSim {
     ///
     /// `skip` is the snake being respawned, if it already exists (see
     /// `is_clear_except`).
-    fn find_spawn_from(&self, seed: u32, requested: [f32; 3], skip: Option<u32>) -> [f32; 3] {
+    fn find_spawn_from(
+        &self,
+        seed: u32,
+        requested: [f32; 3],
+        skip: Option<u32>,
+        margin: f32,
+    ) -> [f32; 3] {
         let slots = self.spawn_slots.len();
+        let point = [requested[0], requested[1]];
 
         // no disc yet — `Arena` is rebuilt from `ctx.map` on the fixed step and
         // there has not been one. There is nothing to search, so the engine's
         // point stands, exactly as it did before this search existed.
-        if self.arena.radius <= 0.0 || self.is_clear_except([requested[0], requested[1]], skip) {
+        if self.arena.radius <= 0.0 {
+            return requested;
+        }
+
+        // the requested point is honoured only if the whole body fits behind
+        // it: the caller has clamped it onto the spawn ring at most, and the
+        // heading it carries is the engine's, not `facing_centre`'s
+        if self.arena.contains(point, margin) && self.is_clear_except(point, skip) {
             return requested;
         }
 
@@ -304,7 +337,7 @@ impl SnakesSim {
         // subtraction below would underflow. The fallback scan is exactly the
         // case for it
         if slots == 0 {
-            return self.find_spawn_off_slots(seed, requested, skip);
+            return self.find_spawn_off_slots(seed, requested, skip, margin);
         }
 
         let bits = usize::BITS - (slots - 1).leading_zeros();
@@ -332,6 +365,14 @@ impl SnakesSim {
 
             let point = [slot[0], slot[1]];
 
+            // a slot of the map the body would hang out of. The map lays them
+            // at a fraction of the radius, so this is the shrunken arena
+            // (`src/host/ArenaScaler.js`) speaking; clamping the slot inwards
+            // would land it on whoever is standing there, so it is skipped
+            if !self.arena.contains(point, margin) {
+                continue;
+            }
+
             if self.is_clear_except(point, skip) {
                 return self.facing_centre(point);
             }
@@ -339,7 +380,7 @@ impl SnakesSim {
 
         debug_assert_eq!(tried, slots, "the walk must visit every slot exactly once");
 
-        self.find_spawn_off_slots(seed, requested, skip)
+        self.find_spawn_off_slots(seed, requested, skip, margin)
     }
 
     /// Last resort of `find_spawn_from`: every respawn point of the map is
@@ -357,12 +398,13 @@ impl SnakesSim {
         seed: usize,
         requested: [f32; 3],
         skip: Option<u32>,
+        margin: f32,
     ) -> [f32; 3] {
         const RINGS: usize = 64;
         const SPAN: f32 = 0.9;
 
         let golden = std::f32::consts::PI * (3.0 - 5.0f32.sqrt());
-        let limit = (self.arena.radius - self.world.edge_margin).max(0.0) * SPAN;
+        let limit = (self.arena.radius - margin).max(0.0) * SPAN;
         let mut best: Option<([f32; 2], f32)> = None;
 
         for attempt in 0..RINGS {
@@ -493,7 +535,15 @@ impl SnakesSim {
         map_points: &[[f32; 3]],
         events: &mut Vec<CoreEvent>,
     ) {
-        let spot = self.find_spawn(rng, map_points);
+        // the margin is read before the snake is borrowed mutably: it is a
+        // plain f32, so the model borrow ends on this line
+        let margin = self
+            .snakes
+            .get(&id)
+            .and_then(|snake| self.models.get(&snake.model))
+            .map(|model| self.spawn_margin(model))
+            .unwrap_or(self.world.edge_margin);
+        let spot = self.find_spawn(rng, map_points, margin);
         let start = self.world.start_crystals;
 
         let Some(snake) = self.snakes.get_mut(&id) else {
@@ -664,11 +714,20 @@ impl GameSim<SnakesGame> for SnakesSim {
 
         self.next_color = self.next_color.wrapping_add(1);
 
-        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
+        // the colour index the snapshot row carries, told to the host as well:
+        // `src/host/ChatColors.js` turns it into the colour of the player's
+        // nickname in chat. The core is the only place that knows it, and the
+        // wire row is a client-side channel
+        events.push(CoreEvent::Custom {
+            data: json!({ "type": "spawn", "id": game_id, "color": color }),
+        });
+
+        let margin = self.spawn_margin(&model);
+        let [x, y] = self.arena.clamp_inside([x, y], margin);
 
         // the engine's point is a suggestion, not a placement: it does not know
         // which of them are occupied
-        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], None);
+        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], None, margin);
 
         let mut snake = Snake::new(
             model_name,
@@ -722,10 +781,17 @@ impl GameSim<SnakesGame> for SnakesSim {
     ) {
         let start = self.world.start_crystals;
         let grace = self.world.spawn_grace_seconds;
-        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
+        let margin = self
+            .snakes
+            .get(&game_id)
+            .and_then(|snake| self.models.get(&snake.model))
+            .map(|model| self.spawn_margin(model))
+            .unwrap_or(self.world.edge_margin);
+        let [x, y] = self.arena.clamp_inside([x, y], margin);
         // the snake being reset is still alive and still dragging its old
         // body: its own body must not be what pushes it off a free point
-        let [x, y, angle_deg] = self.find_spawn_from(game_id, [x, y, angle_deg], Some(game_id));
+        let [x, y, angle_deg] =
+            self.find_spawn_from(game_id, [x, y, angle_deg], Some(game_id), margin);
 
         if let Some(snake) = self.snakes.get_mut(&game_id) {
             if let Some(model) = self.models.get(&snake.model) {
@@ -767,11 +833,16 @@ impl GameSim<SnakesGame> for SnakesSim {
     ) -> Result<(), String> {
         // a bot HAS an rng, so it gets the ordinary randomised search rather
         // than the deterministic walk `spawn_actor` falls back to
-        let [x, y] = self.arena.clamp_inside([x, y], self.world.edge_margin);
+        let margin = self
+            .models
+            .get(model_name)
+            .map(|model| self.spawn_margin(model))
+            .unwrap_or(self.world.edge_margin);
+        let [x, y] = self.arena.clamp_inside([x, y], margin);
         let spot = if self.is_clear([x, y]) {
             [x, y, angle_deg]
         } else {
-            self.find_spawn(rng, &[[x, y, angle_deg]])
+            self.find_spawn(rng, &[[x, y, angle_deg]], margin)
         };
 
         self.spawn_actor(
@@ -1585,6 +1656,66 @@ mod tests {
     }
 
     #[test]
+    fn a_fresh_body_never_hangs_out_of_the_arena() {
+        // the head is not the snake: `lay_out_body` puts the tail a full body
+        // length behind it, and `edge_margin` alone insets the head only. A
+        // head on that ring left the tail outside the disc — where nothing
+        // kills it, so it was a silent geometry break, not a crash
+        let mut game = game_with_grace(2.0);
+
+        game.step(DT);
+
+        let model = game.sim.models.get("s1").unwrap().clone();
+
+        // what the engine hands out: corners of the grid and points on the
+        // edge of the disc, every one of them past the spawn ring
+        let requests = [
+            [0.0, 0.0],
+            [2560.0, 2560.0],
+            [2560.0, 1280.0],
+            [1280.0, 0.0],
+            [2500.0, 1280.0],
+            [1280.0, 2500.0],
+        ];
+
+        for (i, [x, y]) in requests.iter().enumerate() {
+            let id = i as u32 + 1;
+
+            game.spawn_actor(id, "s1", 1, *x, *y, 0.0).unwrap();
+
+            let snake = game.sim.snakes.get(&id).unwrap();
+
+            for node in snake.path.nodes() {
+                assert!(
+                    game.sim.arena.contains(*node, 0.0),
+                    "requested {:?}: node {node:?} is outside the disc",
+                    [x, y]
+                );
+            }
+        }
+
+        // …and the randomised search `revive` takes after a crash, which is
+        // the one that produced the bug in a real match
+        let margin = game.sim.spawn_margin(&model);
+        let length = length_for(game.sim.world.start_crystals, &model);
+        let mut rng = Rng::new(7);
+
+        for _ in 0..500 {
+            let spot = game.sim.find_spawn(&mut rng, &[], margin);
+            let angle = spot[2].to_radians();
+            let tail = [
+                spot[0] - angle.cos() * length,
+                spot[1] - angle.sin() * length,
+            ];
+
+            assert!(
+                game.sim.arena.contains(tail, 0.0),
+                "head {spot:?} puts the tail {tail:?} outside the disc"
+            );
+        }
+    }
+
+    #[test]
     fn snakes_spawned_on_one_point_are_spread_out_instead_of_stacked() {
         // the engine hands out respawn points by index and never checks
         // whether one is taken: `RoundManager.changeTeam` derives the index
@@ -1920,6 +2051,32 @@ mod tests {
             .count();
 
         assert_eq!(stranded, 0, "the shrink stranded a death pile");
+    }
+
+    #[test]
+    fn a_spawn_tells_the_host_the_colour_it_handed_out() {
+        // the colour index lives in the snapshot row, which is a CLIENT
+        // channel; the host needs it too, to colour the player's nickname in
+        // chat (`src/host/ChatColors.js`)
+        let mut game = game_with_grace(2.0);
+
+        game.step(DT);
+        game.spawn_actor(1, "s1", 1, 800.0, 1280.0, 0.0).unwrap();
+        game.spawn_actor(2, "s1", 1, 1700.0, 1280.0, 0.0).unwrap();
+
+        let events: Vec<serde_json::Value> =
+            serde_json::from_str(&game.take_events_json()).unwrap();
+        let spawns: Vec<&serde_json::Value> = events
+            .iter()
+            .filter(|e| e["type"] == "custom" && e["data"]["type"] == "spawn")
+            .collect();
+
+        assert_eq!(spawns.len(), 2, "one event per spawn: {events:#?}");
+        assert_eq!(spawns[0]["data"]["id"], 1);
+        assert_eq!(spawns[0]["data"]["color"], 0);
+        // the counter walks the palette, so two joins are two colours
+        assert_eq!(spawns[1]["data"]["id"], 2);
+        assert_eq!(spawns[1]["data"]["color"], 1);
     }
 
     /// The `burn` payloads of one step, in order.

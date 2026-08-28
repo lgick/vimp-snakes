@@ -4,6 +4,7 @@ import authSchema from '../config/auth.js';
 import clientConfig from '../config/client.js';
 import createModules, {
   getArenaScaler,
+  getChatColors,
   getStatBridge,
 } from './createModules.js';
 import botCommand from './botCommand.js';
@@ -70,6 +71,9 @@ export default {
   // of them (crystals, death, respawn, population) because it owns the whole
   // life cycle the engine would otherwise run; see src/host/StatBridge.js for
   // what the first three become, and the note atop src/config/game.js for why.
+  // A fifth, `spawn`, carries the colour index the core handed the snake —
+  // src/host/ChatColors.js turns it into the colour of the player's nickname
+  // in chat.
   //
   // The context is exactly { vimp, panel }: no stat, no chat, no participants.
   // The bridge needs both halves of it — `panel` for the player's own HUD
@@ -79,5 +83,6 @@ export default {
   onCoreEvent(data, ctx = {}) {
     getStatBridge()?.onCoreEvent(data, ctx);
     getArenaScaler()?.onCoreEvent(data, ctx);
+    getChatColors()?.onCoreEvent(data);
   },
 };

@@ -1,6 +1,6 @@
 [package]
 name = "vimp-snakes-core"
-description = "Vimp Snakes — game simulation + wasm-bindgen ABI on top of vimp-engine-core."
+description = "VIMP Snakes — game simulation + wasm-bindgen ABI on top of vimp-engine-core."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

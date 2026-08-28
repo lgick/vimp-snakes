@@ -27,7 +27,7 @@ export default {
   },
 
   texts: {
-    title: 'Vimp Snakes',
+    title: 'Snakes',
     sections: [
       {
         heading: 'How to play',

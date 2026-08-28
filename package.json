@@ -1,7 +1,7 @@
 {
   "name": "@vimp-games/snakes",
   "version": "0.7.6",
-  "description": "Vimp Snakes — a VIMP game plugin",
+  "description": "VIMP Snakes — a VIMP game plugin",
   "author": "lgick",
   "license": "MIT",
   "repository": {

@@ -17,7 +17,8 @@ dev/main.js  — the standalone dev harness (`npm run dev`), never published
 src/
   host/      — HostPlugin: core-event router, StatBridge (scoring), ArenaScaler
                (the map that grows with the crowd), ScriptedManager (bots),
-               chat commands, g:* system messages
+               ChatColors (the nickname takes the snake's colour), chat
+               commands, g:* system messages
   client/    — ClientPlugin: parts/ (PixiJS entities), bakers/ (the crystal
                and crown textures), gameOver.js (the result overlay), game CSS
   config/    — game config halves (game.js, client.js, auth.js, sounds.js,
@@ -119,6 +120,18 @@ free-form `gameConfig.parts.*` key reaches the client config but never a part
    engine flags in `src/config/game.js` make it official: `noSpectators` (one
    team, the joiner goes straight into it) and `endlessRound` (the engine
    never restarts the round or wipes the stat table by itself).
+
+   `noSpectators` has a second consequence, in chat: the engine colours a
+   nickname by TEAM, and one team means one colour for everybody. So the chat
+   borrows the only mark that already distinguishes players — the snake's
+   colour. The chain is core → host → engine: `spawn_actor` reports the
+   palette index it handed out in a `spawn` custom event (the snapshot row
+   carrying the same index is a CLIENT channel and the host never sees it),
+   `src/host/ChatColors.js` turns it into `'#rrggbb'` and calls
+   `participants.setChatColor(gameId, colour)`, and the engine applies that to
+   every message the player sends (vimp-engine >= 0.22). The call is optional
+   on purpose — an older engine has no such method and the nicknames simply
+   stay team-coloured.
 
    The consequence is the scoring model. With no round to end and no death the
    engine hears about, the only boundary this game has is the crash, so the
