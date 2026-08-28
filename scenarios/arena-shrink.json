@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "seed": 4242,
+  "map": "arena",
+  "participants": [
+    {
+      "id": "p1",
+      "name": "Snake1",
+      "model": "s1"
+    },
+    {
+      "id": "p2",
+      "name": "Snake2",
+      "model": "s1"
+    },
+    {
+      "id": "p3",
+      "name": "Snake3",
+      "model": "s1"
+    },
+    {
+      "id": "p4",
+      "name": "Snake4",
+      "model": "s1"
+    },
+    {
+      "id": "p5",
+      "name": "Snake5",
+      "model": "s1"
+    },
+    {
+      "id": "p6",
+      "name": "Snake6",
+      "model": "s1"
+    },
+    {
+      "id": "p7",
+      "name": "Snake7",
+      "model": "s1"
+    },
+    {
+      "id": "p8",
+      "name": "Snake8",
+      "model": "s1"
+    },
+    {
+      "id": "p9",
+      "name": "Snake9",
+      "model": "s1"
+    },
+    {
+      "id": "p10",
+      "name": "Snake10",
+      "model": "s1"
+    },
+    {
+      "id": "p11",
+      "name": "Snake11",
+      "model": "s1"
+    },
+    {
+      "id": "p12",
+      "name": "Snake12",
+      "model": "s1"
+    }
+  ],
+  "timeline": [
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p1",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p2",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p3",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p4",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p5",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p6",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p7",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p8",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p9",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p10",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p11",
+      "team": "players"
+    },
+    {
+      "tick": 0,
+      "op": "join",
+      "who": "p12",
+      "team": "players"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p5"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p6"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p7"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p8"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p9"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p10"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p11"
+    },
+    {
+      "tick": 3000,
+      "op": "leave",
+      "who": "p12"
+    }
+  ],
+  "unusedSnapshotKeys": [
+    "c1"
+  ],
+  "divergence": null,
+  "ticks": 6000,
+  "dumpTicks": [
+    2900,
+    3100,
+    5900
+  ]
+}

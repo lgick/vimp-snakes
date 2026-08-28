@@ -913,11 +913,15 @@ impl GameSim<SnakesGame> for SnakesSim {
         // outside the disc, and `retain_inside` explains why that cannot be
         // left alone. Radius zero is "no map loaded yet", not an empty arena,
         // so it clears nothing.
-        if arena.radius > 0.0
-            && (arena.radius != self.arena.radius || arena.centre != self.arena.centre)
-        {
-            self.field.retain_inside(&arena);
-        }
+        //
+        // The sweep itself waits for the END of the step (section 5). A shrink
+        // is exactly the step on which the snakes caught in the old ring hit
+        // the boundary and die, and `kill` drops their pile along the BODY —
+        // that is, outside the new disc. Sweeping before section 4 would sweep
+        // before the mess is made, and the next sweep only comes with the next
+        // resize.
+        let arena_changed = arena.radius > 0.0
+            && (arena.radius != self.arena.radius || arena.centre != self.arena.centre);
 
         self.arena = arena;
 
@@ -1110,8 +1114,9 @@ impl GameSim<SnakesGame> for SnakesSim {
 
                 // `gained` is what the host counts with: `total` is the
                 // CARRIED amount, and that one is reset by a respawn and burnt
-                // by the boost without an event of any kind — a host diffing
-                // totals would miscount both.
+                // by the boost. The burn has an event of its own (`type:
+                // "burn"` above), the respawn has none — so a host diffing
+                // totals would still miscount.
                 ctx.events.push(CoreEvent::Custom {
                     data: json!({
                         "type": "crystals",
@@ -1134,6 +1139,15 @@ impl GameSim<SnakesGame> for SnakesSim {
                 id,
                 killer,
             );
+        }
+
+        // ***** 5. the ground the crystals stand on *****
+        //
+        // Last, so that everything this step could have dropped outside a
+        // freshly shrunken disc goes with it: the boost's fuel, the piles of
+        // the snakes the shrink just killed, and the natural spawn.
+        if arena_changed {
+            self.field.retain_inside(&self.arena);
         }
 
         self.snakes = snakes;
@@ -1858,6 +1872,49 @@ mod tests {
             "the field did not refill: {after_shrink} -> {}",
             game.sim.field.len()
         );
+    }
+
+    #[test]
+    fn a_snake_caught_by_the_shrink_does_not_strand_its_pile() {
+        // The other half of the shrink: the snakes left in the old ring hit
+        // the boundary on the very step the arena is rebuilt, and `kill` drops
+        // their pile along the BODY — a couple of hundred units of it, all of
+        // it outside the new disc. Sweeping at the top of the step would sweep
+        // before that pile exists, and nothing would come for it until the
+        // next resize.
+        let mut value = config_json(0.0);
+
+        value["models"]["s1"]["world"]["maxCrystals"] = json!(60);
+
+        let cfg: SnakesConfig = serde_json::from_value(value.clone()).unwrap();
+        let engine: EngineConfig = serde_json::from_value(value).unwrap();
+        let mut game = GameState::new(engine, &cfg);
+
+        game.load_map(&map_json_of(40)).unwrap();
+        // out in the ring the shrink is about to take away
+        game.spawn_actor(1, "s1", 1, 4800.0, 2560.0, 0.0).unwrap();
+        game.sim.snakes.get_mut(&1).unwrap().crystals = 200;
+
+        game.load_map(&map_json_of(20)).unwrap();
+        game.step(DT);
+        game.step(DT);
+
+        assert!(!game.sim.snakes[&1].alive, "the shrink did not kill it");
+
+        let arena = game.sim.arena;
+        let stranded = game
+            .sim
+            .field
+            .iter()
+            .filter(|(_, crystal)| {
+                let dx = crystal.x - arena.centre[0];
+                let dy = crystal.y - arena.centre[1];
+
+                (dx * dx + dy * dy).sqrt() > arena.radius
+            })
+            .count();
+
+        assert_eq!(stranded, 0, "the shrink stranded a death pile");
     }
 
     /// The `burn` payloads of one step, in order.

@@ -51,6 +51,13 @@ function graceAlpha(now) {
   return GRACE_ALPHA_MIN + (GRACE_ALPHA_MAX - GRACE_ALPHA_MIN) * phase;
 }
 
+/// Does this place exist? A place is a number or null, and an id the host has
+/// never ranked (a bot, a guest, a snake whose player just left) answers with
+/// neither — so both absences mean the same thing: no badge.
+function placed(place) {
+  return place !== null && place !== undefined;
+}
+
 /// Lightens a hex colour towards white by `amount` (0..1).
 function lighten(color, amount) {
   const mix = channel => Math.round(channel + (0xff - channel) * amount);
@@ -182,9 +189,11 @@ export default class Snake extends Container {
     // after the first row and change while the match runs
     const { daily, monthly } = this._accolades?.placeOf(this._id) ?? {};
 
-    this._drawBody(points, radius, color, boosting, daily !== null && daily !== undefined);
+    // two badges, two slices: the diamonds are the DAILY top ten and the
+    // crown is the MONTHLY one
+    this._drawBody(points, radius, color, boosting, placed(daily));
     this._drawHead(points[0], angle, radius, color);
-    this._drawCrown(points[0], angle, radius, monthly !== null && monthly !== undefined);
+    this._drawCrown(points[0], angle, radius, placed(monthly));
 
     // This snake just ate. The cue is played for the local player only —
     // everyone else's pickups are drawn but silent. Rows only arrive when the
@@ -197,7 +206,7 @@ export default class Snake extends Container {
     this._headAt = points[0];
   }
 
-  _drawBody(points, radius, color, boosting, crowned) {
+  _drawBody(points, radius, color, boosting, diamonds) {
     const curve = smooth(points, SNAKE.smoothing);
     const graphics = this._body;
 
@@ -237,7 +246,7 @@ export default class Snake extends Container {
       join: 'round',
     });
 
-    if (crowned) {
+    if (diamonds) {
       this._drawDiamonds(curve, radius, color);
     }
   }

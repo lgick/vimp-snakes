@@ -201,9 +201,45 @@ describe('StatBridge', () => {
     expect(vimp.finishPlayerGame).toHaveBeenCalledTimes(2);
   });
 
-  it('pushes the result to auth at once, not on the next interval', () => {
-    // a new daily best has to be in the database by the time the player
-    // presses Tab
+  it('pushes a new daily best to auth at once, not on the next interval', () => {
+    // a record has to be in the database by the time the player presses Tab
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+      getPlayerRating: vi.fn(() => ({ value: 30, placement: 4, total: 9 })),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 44 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.getPlayerRating).toHaveBeenCalledWith('3', 'day');
+    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: true });
+  });
+
+  it('lets an ordinary game wait for the engine interval', () => {
+    // `urgent` bypasses the minimum interval AND the backoff; spending it on
+    // every death spends the room's whole write budget on deaths. A game that
+    // beats nothing changes no table anybody is looking at
+    const vimp = {
+      addPlayerPoints: vi.fn(),
+      finishPlayerGame: vi.fn(),
+      flushPlayerData: vi.fn(),
+      setPlayerState: vi.fn(),
+      getPlayerRating: vi.fn(() => ({ value: 500, placement: 2, total: 9 })),
+    };
+
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 12 }, { vimp });
+    bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
+
+    expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: false });
+  });
+
+  it('treats the first game of an engine without ratings as a record', () => {
+    // an old engine (or a test stub) has no getPlayerRating: the daily value
+    // reads as zero, and any scoring game beats it — losing the points would
+    // be worse than one extra write
     const vimp = {
       addPlayerPoints: vi.fn(),
       finishPlayerGame: vi.fn(),
@@ -211,6 +247,7 @@ describe('StatBridge', () => {
       setPlayerState: vi.fn(),
     };
 
+    bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 5 }, { vimp });
     bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
 
     expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: true });

@@ -63,6 +63,8 @@ boundary are removed rather than stranded there. Outside the disc they could
 never be eaten — the boundary stops a head before its pickup reach gets to
 them — and they would go on filling `world.maxCrystals`, so the arena would
 starve on food nobody could reach ([core.md](core.md#the-crystal-field-crystalsrs)).
+That includes the piles of the snakes the shrink itself kills: the sweep is
+the last thing the step does, after the crashes are applied.
 
 Respawn points are a sunflower spiral of 64 points, handed out in
 bit-reversed order so that any small wave of joiners is spread over the whole
@@ -135,10 +137,13 @@ the rest of their game.
 
 A crash ends the victim's game. The bridge hands the number over —
 `vimp.addPlayerPoints(gameId, score)` then `vimp.finishPlayerGame(gameId)` —
-and asks for an urgent flush (`vimp.flushPlayerData({ urgent: true })`), so a
-new daily best is in the database by the time the player presses `Tab`. What
-that one number means in each rating is the platform's decision, not the
-game's:
+and then asks for a flush. Urgent (`{ urgent: true }`) only when the game just
+beat the player's daily best, so a record is in the database by the time they
+press `Tab`; an ordinary game waits for the engine's own interval. `urgent`
+bypasses both that interval and the room's backoff, and spending it on every
+crash would spend the room's whole write budget on deaths — nothing is lost by
+waiting, the points sit in the engine's pending counters. What that one number
+means in each rating is the platform's decision, not the game's:
 
 | Rating | Rule |
 | --- | --- |

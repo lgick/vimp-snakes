@@ -190,10 +190,11 @@ npm run sim -- --game ../vimp-snakes --scenario ../vimp-snakes/scenarios/movemen
 | `growth.json` | two players, three bots, crystals, the boost, `/bot` |
 | `pointer.json` | steering to a point with mouse/finger, the keyboard taking over mid-run, the double-tap boost |
 | `bots.json` | `/bot <count>` as a SET: six bots, then two, then a refused count, then none |
+| `arena-shrink.json` | twelve join and eight leave: the arena shrinks a whole step, and the crystals of the old ring go with it |
 
-All five are expected to pass with `--determinism`. Two invariants skip by
-design: `roundLifecycle` (this game has no round end) and, in three of the
-five scenarios, `predictionDrift` (a crash and a respawn are legitimate
+All six are expected to pass with `--determinism`. Two invariants skip by
+design: `roundLifecycle` (this game has no round end) and, in four of the
+six scenarios, `predictionDrift` (a crash and a respawn are legitimate
 one-off spikes — `movement.json` and `pointer.json` are the two that watch for
 drift that *grows*).
 

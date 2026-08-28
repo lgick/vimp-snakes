@@ -211,14 +211,32 @@ export default class StatBridge {
     //
     // The optional calls keep old engine builds and test stubs working — the
     // same reason `addPlayerRank` was called that way before them.
+    // read BEFORE the result is reported: `finishPlayerGame` raises the
+    // engine's own daily value to this game's score, so asking afterwards
+    // would always answer "yes, a record"
+    const dayBefore = vimp?.getPlayerRating?.(gameId, 'day')?.value ?? 0;
+
     vimp?.addPlayerPoints?.(gameId, victim.score);
     vimp?.finishPlayerGame?.(gameId);
 
     this._recordBest(gameId, victim, vimp);
 
-    // urgent, unlike the request on 'population': a new daily best has to be
-    // in the database by the time the player presses Tab, not a minute later
-    vimp?.flushPlayerData?.({ urgent: true });
+    // ***** WHEN THIS IS WORTH A DATABASE WRITE *****
+    //
+    // `urgent` bypasses BOTH the engine's minimum sync interval and its
+    // backoff — it is the "there is no second chance" flag, and spending it
+    // on every death spends the room's whole write budget on deaths:
+    // `master:playerData:writesPerMinute` is 240 a minute per room, and a
+    // busy room of 32 dies more often than that. The room would then live in
+    // 429 and backoff, which delays EVERYBODY's data, not just the dead
+    // player's.
+    //
+    // A record is different: the player is about to press Tab to look at it,
+    // and the daily table is exactly what a new best changes. An ordinary
+    // game changes nothing anyone is watching, so it waits for the engine's
+    // interval — nothing is lost either way, the points sit in the engine's
+    // pending counters until the next flush.
+    vimp?.flushPlayerData?.({ urgent: victim.score > dayBefore });
   }
 
   // A new life: the score starts at zero and the HUD says so.

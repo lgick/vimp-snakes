@@ -217,8 +217,14 @@ awkward: a head is stopped at `radius - snake_radius` and reaches
 or fat, ever gets within `radius + tier.radius` of the centre. They also keep
 counting against `max_crystals`, so the field stops refilling and the arena
 starves on food nobody can eat — a 2560 → 1280 shrink stranded 44 of 60.
-`retain_inside()` drops them as ordinary `null` rows the moment
+`retain_inside()` drops them as ordinary `null` rows on the step
 `on_fixed_step` sees the radius or the centre change.
+
+The sweep runs at the END of that step, not at the top of it. A shrink is
+exactly the step on which the snakes left in the old ring hit the boundary
+and die, and `kill` drops their pile along the BODY — hundreds of units of
+it, all outside the new disc. Sweeping first would sweep before the mess is
+made, and nothing would come for it until the next resize.
 
 ## Bots
 

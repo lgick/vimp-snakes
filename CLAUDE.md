@@ -89,7 +89,7 @@ npm run dev
 ```
 
 The headless runner lives in the engine checkout and loads the **built**
-plugin (`npm run build` first); `scenarios/` holds five, all passing with
+plugin (`npm run build` first); `scenarios/` holds six, all passing with
 `--determinism`. See `docs/en/getting-started.md`.
 
 Any functional change updates the tests covering it in the same change;
