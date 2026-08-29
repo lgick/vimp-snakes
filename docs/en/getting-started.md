@@ -25,6 +25,16 @@ npm install
 this plugin only imports its public `exports` surface (`./config/*`,
 `./standalone`, `./style.css`).
 
+Updating that dependency is **optional**. The `engineApi` number in the
+manifest and in both plugin halves is a generation stamp, not a gate: the
+engine accepts a package built against an older release and never rejects it
+for its age, so a published build keeps playing across engine releases. Follow
+a newer `vimp-engine` / `vimp-engine-core` when you want something it added.
+A capability the game cannot do without is then named in `manifest.requires`
+(`scripts/build-game-manifest.js`) — this game names `accolades` there, for
+the leader crowns — and only an engine too old to provide that name refuses
+the package.
+
 `pixi.js` is a **peer dependency**, not bundled: the client build
 externalizes it (`vite.config.js`), and at runtime it must resolve to the same
 module instance the engine uses, supplied via an import map on the host page.

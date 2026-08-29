@@ -155,7 +155,15 @@ if (hasNodeCore) {
 
 const manifest = {
   id: 'snakes',
+  // a generation stamp, not a gate: the engine accepts a package older than
+  // itself, so this game does not expire when the engine releases
   engineApi: ENGINE_API_VERSION,
+  // the crowns over the daily and monthly leaders come from the `accolades`
+  // pool service (Snake.js) fed by the ACCOLADES_DATA port. The part reads it
+  // optionally, so an engine without it renders a match with no crowns at all
+  // and no error — a silently reduced game. Declaring the name makes such an
+  // engine refuse the package instead. Names: `vimp-engine/lib/capabilities.js`.
+  requires: ['accolades'],
   version,
   title: 'Snakes',
   entries: {
