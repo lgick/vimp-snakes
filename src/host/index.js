@@ -28,6 +28,15 @@ export default {
   // day it is typed and silently disagrees after the next release
   engineApi: ENGINE_API_VERSION,
 
+  // engine capabilities the game cannot run without — the same list as
+  // GameManifest.requires (scripts/build-game-manifest.js), repeated here
+  // because the standalone SDK has no manifest: `npm run dev` builds the
+  // match from the live plugin objects. The crowns over the daily and
+  // monthly leaders come from the `accolades` pool service fed by the
+  // ACCOLADES_DATA port; without it the game runs with no crowns at all and
+  // no error, so the name is declared instead of degrading silently
+  requires: ['accolades'],
+
   // wasmUrl comes from the manifest: init() loads by an explicit URL instead
   // of the glue module's own import.meta.url resolution, which does not
   // survive inside a Worker

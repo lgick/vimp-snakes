@@ -19,6 +19,10 @@ export default {
   id: 'snakes',
   engineApi: ENGINE_API_VERSION,
 
+  // same list as the host half and GameManifest.requires — read by the
+  // standalone SDK, which has no manifest to read it from
+  requires: ['accolades'],
+
   // MUST return { core, memory }: `memory` is the WebAssembly memory the
   // engine reads the hot buffer out of every render tick. Without it the
   // client silently renders nothing but the discrete frames.
