@@ -125,14 +125,13 @@ cd vimp && npm run dev                        # мастер на https://localh
 `npm install` в любом из репозиториев заменяет симлинки реестровыми копиями,
 так что команды `npm link <имя>` придётся повторить.
 
-Каталог игр мастер строит из `node_modules/@vimp-games/*`, когда `GAMES_MATRIX`
-не задана, сортируя по id — поэтому `snakes` идёт первой и становится
-**активной** игрой лобби, что и делает кнопку `Create server` кликабельной.
-Закрепить другую:
-
-```bash
-GAMES_MATRIX='[{"id":"tanks","package":"@vimp-games/tanks"}]' npm run dev
-```
+Каталог игр мастер строит из конфиг-списка `master:games`
+(`{id, package}[]`, резолвится под `node_modules/`, см. доку движка
+[configuration.md](https://github.com/lgick/vimp-engine/blob/main/docs/ru/configuration.md#packagesenginesrcconfigmasterjs)),
+сортируя по id — поэтому `snakes` идёт первой и становится **активной**
+игрой лобби, что и делает кнопку `Create server` кликабельной. Чтобы
+закрепить другую игру, нужно править этот конфиг-список — переменной
+окружения это не переопределяется.
 
 Пакет должен быть собран до старта мастера: каталог читает
 `dist/manifest.json`, а не исходники. В dev движок затем отдаёт `src/**` и

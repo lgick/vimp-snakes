@@ -132,14 +132,13 @@ The reverse link matters as much as the forward one: without it this plugin's
 the symlinks with registry copies, so the `npm link <name>` commands have to be
 repeated afterwards.
 
-The master builds its game catalog from `node_modules/@vimp-games/*` when
-`GAMES_MATRIX` is unset, sorted by id — so `snakes` comes first and is the
-lobby's **active** game, which is what makes the `Create server` button
-clickable. To pin a different one:
-
-```bash
-GAMES_MATRIX='[{"id":"tanks","package":"@vimp-games/tanks"}]' npm run dev
-```
+The master builds its game catalog from the `master:games` config list
+(`{id, package}[]` resolved under `node_modules/`, see the engine's
+[configuration.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/configuration.md#packagesenginesrcconfigmasterjs)),
+sorted by id — so `snakes` comes first and is the lobby's **active** game,
+which is what makes the `Create server` button clickable. Pin a different
+one by editing that config list (there is no environment-variable override
+for it).
 
 This package must be built before the master starts: the catalog reads
 `dist/manifest.json`, not the sources. In dev the engine then serves this
