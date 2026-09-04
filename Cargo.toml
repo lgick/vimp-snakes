@@ -10,7 +10,7 @@ license = "MIT"
 authors = ["lgick"]
 
 [workspace.dependencies]
-vimp-engine-core = "0.10.0"
+vimp-engine-core = "0.11.0"
 # insertion order of models/weapons/panel is a contract: the weapon index of
 # the snapshot row is the position of the key in the config, so a HashMap
 # would silently reshuffle it between runs
