@@ -1116,7 +1116,26 @@ impl GameSim<SnakesGame> for SnakesSim {
             });
         }
 
-        let map_points: Vec<[f32; 3]> = map.respawns.values().next().cloned().unwrap_or_default();
+        // `MapConfig` keeps a respawn point as a variable-length list
+        // (`[x, y, angleDeg]` or a 4th number — the level of a 2.5D map).
+        // Snakes are single-level: the level is dropped here
+        let map_points: Vec<[f32; 3]> = map
+            .respawns
+            .values()
+            .next()
+            .map(|points| {
+                points
+                    .iter()
+                    .map(|p| {
+                        [
+                            p.first().copied().unwrap_or(0.0),
+                            p.get(1).copied().unwrap_or(0.0),
+                            p.get(2).copied().unwrap_or(0.0),
+                        ]
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         // kept for `find_spawn_from`, which runs from `spawn_actor` — outside
         // the fixed step, where the map is not in hand. Compared before the
