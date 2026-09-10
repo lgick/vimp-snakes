@@ -22,5 +22,16 @@ const sounds = {
 
 export default {
   codecList: ['webm', 'mp3'],
+
+  // World units are screen pixels here (mapScale 1, baseScale 1:1), so the
+  // engine defaults hold; only the body radius is ours.
+  spatial: {
+    mode: 'topDown',
+
+    // baseRadius of a snake (src/data/models.js): a crystal picked up under
+    // the head is spread evenly across both ears
+    innerRadius: 14,
+  },
+
   sounds,
 };

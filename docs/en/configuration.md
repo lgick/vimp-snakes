@@ -214,6 +214,20 @@ as a **webm + mp3 pair** — the client walks `codecList` and takes the first
 codec the browser supports, so a missing `.mp3` breaks Safari only. Never set
 `path`: the engine overwrites it with `${assetsBase}sounds/`.
 
+The `spatial` block declares **only** `mode: 'topDown'` and
+`innerRadius: 14`. World units here are screen pixels (`mapScale` 1,
+`baseScale` `'1:1'`), so every engine default is already in the right unit;
+the one number that is ours is the snake's `baseRadius` (`src/data/models.js`)
+— inside it a crystal picked up under the head spreads evenly across both
+ears instead of jumping into one.
+
+`virtualElevation` is **deliberately left at the engine default** (180): with
+half a 1920×1080 screen being 960 × 540 world units it gives a wide panorama
+at the screen edge and a soft centre at the head, which is what this game
+wants. It is not a forgotten setting — do not "fix" it by adding one. The
+meaning of every key and how to calibrate them:
+[client.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/client.md#partssoundsspatial).
+
 ## src/config/snapshot.js — the snapshot key schema
 
 Three blocks — `s1`, `cr`, `c1` — described in
