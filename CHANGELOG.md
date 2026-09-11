@@ -14,5 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `innerRadius: 14` world units — the snake's `baseRadius`). A crystal picked
   up under the head no longer jumps into one ear with a change of timbre.
   `virtualElevation` is deliberately left at the engine default, one world
-  unit here being one screen pixel. Requires a `vimp-engine` that supports
-  `parts.sounds.spatial`.
+  unit here being one screen pixel. An engine without `parts.sounds.spatial`
+  support ignores the block and sounds as it did before — no version bump is
+  required.

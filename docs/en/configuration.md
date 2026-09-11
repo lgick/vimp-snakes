@@ -225,7 +225,9 @@ ears instead of jumping into one.
 half a 1920×1080 screen being 960 × 540 world units it gives a wide panorama
 at the screen edge and a soft centre at the head, which is what this game
 wants. It is not a forgotten setting — do not "fix" it by adding one. The
-meaning of every key and how to calibrate them:
+`1920×1080` above is the design window, and that is the only size worth
+reasoning about: on any other one the engine scales the elevation itself
+through the scene scale. The meaning of every key and how to calibrate them:
 [client.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/client.md#partssoundsspatial).
 
 ## src/config/snapshot.js — the snapshot key schema
