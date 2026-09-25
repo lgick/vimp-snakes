@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-25
+
 ### Changed
 
 - Sound near the listener is continuous now: the game declares its player
