@@ -1,15 +1,19 @@
 name: Release
 
-# Single-package publish via OIDC Trusted Publishing (no npm token stored).
-# Local prep — bump `version` in package.json, write the changelog entry,
+# Publish via OIDC Trusted Publishing (no npm token stored). Local prep —
+# bump `version` in package.json, write the changelog entry,
 # `cargo update -p vimp-engine-core` / `npm i -D vimp-engine@^X` if the
-# engine moved, commit, push to main — is still done by hand. This workflow
-# only builds the WASM core + dist/ (not committed) and publishes it.
+# engine moved, commit, tag, push — is still done by `npm run release` in
+# the engine repo (or by hand). This workflow does not create the tag — it
+# runs FROM one: the tag push (`vX.Y.Z`) is what triggers it. It only builds
+# the WASM core + dist/ (not committed) and publishes.
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
 
 jobs:
@@ -53,7 +57,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          v=$(node -p "require('./package.json').version")
+          v="${GITHUB_REF_NAME#v}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Guard against re-publish
@@ -73,8 +77,3 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance
-
-      - name: Tag release
-        run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"

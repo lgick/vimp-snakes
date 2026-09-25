@@ -102,7 +102,9 @@ job with both WASM targets) runs on every push/PR. This repo has no
 deployment of its own — it publishes `@vimp-games/snakes` (npm, ships
 `dist/`) for the engine's master/host/client to consume. Publishing is
 manual prep (bump `version` in `package.json`, changelog if there is one,
-`cargo update -p vimp-engine-core` if the engine moved) followed by
-triggering `.github/workflows/release.yml` (`workflow_dispatch`), which
-builds the WASM core + `dist/` and publishes via npm OIDC Trusted
-Publishing — no npm token stored in CI.
+`cargo update -p vimp-engine-core` if the engine moved, push the commit and
+the `vX.Y.Z` tag). `.github/workflows/release.yml` does not create that tag
+— it runs **from** it: the tag push triggers the workflow, which builds the
+WASM core + `dist/` and publishes via npm OIDC Trusted Publishing — no npm
+token stored in CI. The engine repo's `npm run release` can drive this same
+tag+push from a linked checkout; see its `docs/en/publishing.md`.
