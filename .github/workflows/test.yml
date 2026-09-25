@@ -1,0 +1,116 @@
+name: Lint & Test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# lint не требует Rust; snakes собирает и тестирует игровой Rust-крейт +
+# web-таргет ядра (client/host-плагины грузят wasm-glue статически);
+# integration гоняет сквозные тесты на реальном ядре (нужны оба таргета —
+# node-таргет для tests/core/*, web-таргет — для того же импорта плагина,
+# что и в snakes-job). Структура перенесена из vimp-tanks/.github/workflows/test.yml.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx eslint .
+
+  snakes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust (vimp-snakes-core)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-snakes-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rust tests (игровой crate)
+        run: cargo test -p vimp-snakes-core
+
+      - name: Build core (web-таргет — client/host-плагины грузят wasm-glue статически)
+        run: npm run core:build:web
+
+      - name: JS tests (игра)
+        run: npx vitest run --project unit
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: "Setup Rust (cargo workspace: core)"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install dependencies
+        run: npm ci
+
+      # web-таргет нужен для того же динамического импорта плагина, что и в
+      # snakes-job, node-таргет — JS↔WASM хелперам tests/core/*
+      - name: Build core (оба таргета — web и nodejs)
+        run: npm run core:build
+
+      - name: JS↔WASM integration tests (реальное ядро snakes)
+        run: npx vitest run --project integration
+
+      # headless-прогон на собранном плагине: build:manifest копирует
+      # core/pkg-node в dist/core-node и объявляет entries.wasmNode
+      - name: Build plugin (dist/ + manifest)
+        run: npm run build
+
+      - name: Sim smoke run (vimp-sim)
+        run: npm run sim

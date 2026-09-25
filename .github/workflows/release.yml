@@ -1,0 +1,80 @@
+name: Release
+
+# Single-package publish via OIDC Trusted Publishing (no npm token stored).
+# Local prep — bump `version` in package.json, write the changelog entry,
+# `cargo update -p vimp-engine-core` / `npm i -D vimp-engine@^X` if the
+# engine moved, commit, push to main — is still done by hand. This workflow
+# only builds the WASM core + dist/ (not committed) and publishes it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Rust (vimp-snakes-core)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Trusted Publishing needs npm >= 11.5.1; older npm silently falls back
+      # to the legacy token flow and the publish fails with ENEEDAUTH
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Read version
+        id: version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Guard against re-publish
+        run: |
+          set -e
+          published=$(npm view "@vimp-games/snakes@${{ steps.version.outputs.version }}" version 2>/dev/null || true)
+          if [ -n "$published" ]; then
+            echo "@vimp-games/snakes@${{ steps.version.outputs.version }} is already on npm" >&2
+            exit 1
+          fi
+
+      - name: Build core (web + nodejs)
+        run: npm run core:build
+
+      - name: Build plugin (dist/ + manifest)
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --provenance
+
+      - name: Tag release
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"

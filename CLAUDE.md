@@ -94,3 +94,15 @@ plugin (`npm run build` first); `scenarios/` holds six, all passing with
 
 Any functional change updates the tests covering it in the same change;
 `npx eslint .` and `npm test` end every change green.
+
+## CI & Deployment
+
+`.github/workflows/test.yml` (lint, Rust + web-target unit job, integration
+job with both WASM targets) runs on every push/PR. This repo has no
+deployment of its own — it publishes `@vimp-games/snakes` (npm, ships
+`dist/`) for the engine's master/host/client to consume. Publishing is
+manual prep (bump `version` in `package.json`, changelog if there is one,
+`cargo update -p vimp-engine-core` if the engine moved) followed by
+triggering `.github/workflows/release.yml` (`workflow_dispatch`), which
+builds the WASM core + `dist/` and publishes via npm OIDC Trusted
+Publishing — no npm token stored in CI.
