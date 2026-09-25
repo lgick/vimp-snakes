@@ -94,6 +94,9 @@ jobs:
         with:
           shared-key: wasm-core
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # ядро собирается в начале джоба: упавший позже JS-тест не должен
+          # оставлять следующий релиз без кэша и с холодной сборкой
+          cache-on-failure: true
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
