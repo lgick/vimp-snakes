@@ -52,14 +52,17 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      # A tag run sees only its own tag's caches and main's — never those of
+      # earlier release tags, so a cache saved here would never be read.
+      # Instead it restores what test.yml's integration job saved on main:
+      # the same `npm run core:build`, the same shared-key. rust-cache falls
+      # back to the newest entry when Cargo.lock differs, which it always
+      # does after a vimp-engine-core bump.
+      - name: Cache cargo (saved by test.yml on main)
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          shared-key: wasm-core
+          save-if: false
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh

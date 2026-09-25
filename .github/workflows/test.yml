@@ -84,14 +84,16 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      # shared-key: release.yml restores this cache for its identical
+      # `npm run core:build` — a tag run cannot read caches of other tags,
+      # only main's, so main is where it is saved. rust-cache also prunes
+      # stale artifacts before saving, so target/ does not grow release
+      # after release
+      - name: Cache cargo (shared with release.yml)
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          shared-key: wasm-core
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
