@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.5] - 2026-09-29
+
+### Changed
+
+- Rebuilt against `vimp-engine-core` 0.23.0.
+
 ## [0.15.4] - 2026-09-27
 
 ### Changed
