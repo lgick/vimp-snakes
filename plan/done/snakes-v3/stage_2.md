@@ -80,11 +80,11 @@ async recordGameResult(userId, gameId, { points, best }, attribution = {}) {
 `periodStart(period)` (`:32`) остаётся как есть — календарные окна UTC.
 Меняется то, ЧТО агрегируется:
 
-| Срез | Агрегация | Источник |
-| --- | --- | --- |
-| `day` | `MAX(best)` по окну `date_trunc('day', now() AT TIME ZONE 'utc')` | леджер |
-| `month` | `SUM(delta)` по окну `date_trunc('month', …)` | леджер |
-| `all` | `ratings.rank` как есть | суточный снимок |
+| Срез    | Агрегация                                                         | Источник        |
+| ------- | ----------------------------------------------------------------- | --------------- |
+| `day`   | `MAX(best)` по окну `date_trunc('day', now() AT TIME ZONE 'utc')` | леджер          |
+| `month` | `SUM(delta)` по окну `date_trunc('month', …)`                     | леджер          |
+| `all`   | `ratings.rank` как есть                                           | суточный снимок |
 
 `getLeaderboard(gameId, limit, period)` — ветка окна становится такой
 (остальное — `JOIN users`, `COUNT(*) OVER()`, `RANK() OVER`, `ORDER BY
@@ -173,9 +173,13 @@ DO UPDATE SET rank = EXCLUDED.rank, updated_at = now()
 ```js
 // snakes-v3: результат игры. best — одна игра, points — сумма склеенных.
 export const isValidGameResult = (points, best, { maxGameScore, maxPoints }) =>
-  Number.isInteger(points) && Number.isInteger(best) &&
-  points >= 0 && best >= 0 &&
-  best <= maxGameScore && points <= maxPoints && best <= points;
+  Number.isInteger(points) &&
+  Number.isInteger(best) &&
+  points >= 0 &&
+  best >= 0 &&
+  best <= maxGameScore &&
+  points <= maxPoints &&
+  best <= points;
 ```
 
 `best <= points` — не формальность: `best` это максимум среди игр, чья
@@ -208,12 +212,12 @@ maxDelta: 1000 }`. По новой модели законный результ�
 Отсюда: очень хорошая десятиминутная жизнь — **1000–1500** очков, экстремум
 с чередой убийств — **2000–3000**.
 
-| Параметр | Значение | Обоснование |
-| --- | --- | --- |
-| `rank.maxGameScore` (дефолт) | **10 000** | ×3–5 к достижимому экстремуму snakes |
-| `rank.maxPoints` (за запрос) | **200 000** | = `maxGameScore × 20`; окно склейки — минута, столько игр в неё не влезает |
-| `rank.max` | оставить **1 000 000** | дневные рекорды по ~1000 копятся ~1000 игровых дней; колонка `INTEGER` |
-| `rank.maxDelta` | удалить | заменена парой выше |
+| Параметр                     | Значение               | Обоснование                                                                |
+| ---------------------------- | ---------------------- | -------------------------------------------------------------------------- |
+| `rank.maxGameScore` (дефолт) | **10 000**             | ×3–5 к достижимому экстремуму snakes                                       |
+| `rank.maxPoints` (за запрос) | **200 000**            | = `maxGameScore × 20`; окно склейки — минута, столько игр в неё не влезает |
+| `rank.max`                   | оставить **1 000 000** | дневные рекорды по ~1000 копятся ~1000 игровых дней; колонка `INTEGER`     |
+| `rank.maxDelta`              | удалить                | заменена парой выше                                                        |
 
 Auth обслуживает сотни игр, и один глобальный предел для всех неверен:
 у другой игры масштаб очков иной. Поэтому предел **пер-игровой** и живёт на

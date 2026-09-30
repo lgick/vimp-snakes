@@ -83,6 +83,7 @@ only) → `npm run check:contract` and `npm run sim` → rendering.
 npm run core:build      # REQUIRED before npm run dev
 npm run core:test
 npm run check:contract
+npx prettier --write <files> # format modified JS/TS/MD/JSON files
 npm test && npx eslint .
 npm run build
 npm run dev
@@ -93,7 +94,8 @@ plugin (`npm run build` first); `scenarios/` holds six, all passing with
 `--determinism`. See `docs/en/getting-started.md`.
 
 Any functional change updates the tests covering it in the same change;
-`npx eslint .` and `npm test` end every change green.
+`npx prettier --write <modified-files>`, `npx eslint .` and `npm test` end
+every change green.
 
 ## CI & Deployment
 

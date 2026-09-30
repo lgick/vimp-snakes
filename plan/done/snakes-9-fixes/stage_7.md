@@ -85,7 +85,7 @@ snakes раунд вечный, а stat — единственный счёт: �
 - `packages/engine/CHANGELOG.md` — `### Added` (минор): оба флага opt-in,
   старые конфиги со `spectatorTeam` работают ровно как раньше.
 - Документация движка: `docs/en/plugin-api.md` + `docs/ru/`, `docs/ai/03-host-
-  plugin.md` (полный справочник `gameConfig`) и `docs/ai/08-gameplay-meta.md`
+plugin.md` (полный справочник `gameConfig`) и `docs/ai/08-gameplay-meta.md`
   (правила раунда) — в том же изменении.
 - Полный сьют движка как регресс-сеть: правится общий код, а не путь одной
   игры.

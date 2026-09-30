@@ -178,14 +178,8 @@
       "who": "p12"
     }
   ],
-  "unusedSnapshotKeys": [
-    "c1"
-  ],
+  "unusedSnapshotKeys": ["c1"],
   "divergence": null,
   "ticks": 6000,
-  "dumpTicks": [
-    2900,
-    3100,
-    5900
-  ]
+  "dumpTicks": [2900, 3100, 5900]
 }

@@ -28,13 +28,13 @@ turn_speed(c) = max(1.4, 3.4 - 0.18 * sqrt(c))
 - **`core/src/config.rs`** — `SnakeConfig`: поля `turn_speed_falloff`,
   `turn_speed_min`; фикстуры обновить.
 - **`core/src/motion.rs`** — новая `pub fn turn_speed_for(crystals: u32, model:
-  &SnakeConfig) -> f32` рядом с `radius_for`/`length_for`. `step_angle`
+&SnakeConfig) -> f32` рядом с `radius_for`/`length_for`. `step_angle`
   (`motion.rs:53`) сейчас берёт `model.turn_speed` напрямую — сделать явный
   параметр `max_turn: f32` вместо чтения из модели: у `step_angle` уже два
   вызывающих (хост и предиктор), и явный параметр не даёт им разойтись
   молча.
 - **`core/src/snake.rs`** (`Snake::step`) — считает `turn_speed_for(self
-  .crystals, model)` и передаёт в `step_angle`.
+.crystals, model)` и передаёт в `step_angle`.
 - **`core/src/client/predictor.rs`** — то же самое, из `crystals` серверного
   кадра (слот 4).
 

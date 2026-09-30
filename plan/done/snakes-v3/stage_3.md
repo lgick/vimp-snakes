@@ -28,15 +28,15 @@ stateLoaded }` (`:55-64`), тянет `GET /auth/rank` и `/state` в `load()`
 
 ```js
 // очки ТЕКУЩЕЙ игры участника (жизнь, раунд, матч — что игра называет игрой)
-addPoints(participantId, delta)
+addPoints(participantId, delta);
 
 // игра участника закончилась: накопленное уходит в сумму и в максимум
-finishGame(participantId)
+finishGame(participantId);
 
 // значения для показа: 'day' | 'month' | 'all'
-getRating(participantId, period)     // { value, placement, total } | null
-isRatingLoaded(participantId)
-refreshPlacement(participantId, period)  // точечный перезапрос, троттлинг 30 с
+getRating(participantId, period); // { value, placement, total } | null
+isRatingLoaded(participantId);
+refreshPlacement(participantId, period); // точечный перезапрос, троттлинг 30 с
 ```
 
 Запись участника становится такой (имена важны, на них будут тесты):
@@ -102,12 +102,12 @@ auth за один поход хоста и кэшируется тем же `Pl
 Рядом с `getPlayerRank`/`addPlayerRank` (`src/host/HostGame.js:1031-1070`):
 
 ```js
-addPlayerPoints(gameId, delta)          // → _playerDataSync.addPoints
-finishPlayerGame(gameId)                // → _playerDataSync.finishGame
-getPlayerRating(gameId, period)         // → getRating
-isPlayerRatingLoaded(gameId)            // → isRatingLoaded
-refreshPlayerPlacement(gameId, period)  // → refreshPlacement (async)
-flushPlayerData({ urgent = false } = {})// → flushAll, см. 3.2
+addPlayerPoints(gameId, delta); // → _playerDataSync.addPoints
+finishPlayerGame(gameId); // → _playerDataSync.finishGame
+getPlayerRating(gameId, period); // → getRating
+isPlayerRatingLoaded(gameId); // → isRatingLoaded
+refreshPlayerPlacement(gameId, period); // → refreshPlacement (async)
+flushPlayerData(({ urgent = false } = {})); // → flushAll, см. 3.2
 ```
 
 `getPlayerRank`/`addPlayerRank`/`isPlayerRankLoaded` остаются как алиасы на
@@ -157,28 +157,24 @@ playerData: {
 },
 ```
 
-   `flushAll()` из игры — просьба: участник, у которого с прошлой
-   синхронизации прошло меньше `minFlushInterval`, пропускается.
-   **Срочные границы интервал обходят:** `flushAll({ urgent: true })`,
-   уход участника (`HostGame.removeUser`, `:889`) и
-   `HostGame.destroy()` (`:635-646`).
-4. **Джиттер ±20 %** на интервал каждой комнаты: сотни серверов по круглому
-   таймеру дают синхронные пики на мастере.
-5. **Очередь с потолком** `maxRequestsPerSecond` на комнату: flush комнаты
-   на 32 игрока растягивается на секунды вместо залпа в 64 запроса.
-   Простейшая реализация — последовательная отправка с интервалом
-   `1000 / maxRequestsPerSecond` мс; `destroy()` ждёт опустошения очереди
-   (он уже `await`-ит `flushAll`).
-6. **Бэкофф.** На `5xx`/`429`/сетевую ошибку — экспоненциальная пауза
-   комнаты от `baseMs` до `maxMs`, сбрасывается первым успехом. Сейчас
-   неудача просто повторится следующим flush'ем, и сотня серверов будет
-   молотить лежащий сервис синхронно.
-7. **Актуальность.** Свои числа игрок видит из локальных значений
-   (двигаются в `finishGame` мгновенно); запись в БД гарантирована на уходе
-   участника и в `destroy()`; чужие видят изменение с задержкой не больше
-   одного интервала. Потерять можно только последний неотправленный
-   интервал резко закрытой вкладки-хоста — записать это в документацию как
-   известное ограничение.
+`flushAll()` из игры — просьба: участник, у которого с прошлой
+синхронизации прошло меньше `minFlushInterval`, пропускается.
+**Срочные границы интервал обходят:** `flushAll({ urgent: true })`,
+уход участника (`HostGame.removeUser`, `:889`) и
+`HostGame.destroy()` (`:635-646`). 4. **Джиттер ±20 %** на интервал каждой комнаты: сотни серверов по круглому
+таймеру дают синхронные пики на мастере. 5. **Очередь с потолком** `maxRequestsPerSecond` на комнату: flush комнаты
+на 32 игрока растягивается на секунды вместо залпа в 64 запроса.
+Простейшая реализация — последовательная отправка с интервалом
+`1000 / maxRequestsPerSecond` мс; `destroy()` ждёт опустошения очереди
+(он уже `await`-ит `flushAll`). 6. **Бэкофф.** На `5xx`/`429`/сетевую ошибку — экспоненциальная пауза
+комнаты от `baseMs` до `maxMs`, сбрасывается первым успехом. Сейчас
+неудача просто повторится следующим flush'ем, и сотня серверов будет
+молотить лежащий сервис синхронно. 7. **Актуальность.** Свои числа игрок видит из локальных значений
+(двигаются в `finishGame` мгновенно); запись в БД гарантирована на уходе
+участника и в `destroy()`; чужие видят изменение с задержкой не больше
+одного интервала. Потерять можно только последний неотправленный
+интервал резко закрытой вкладки-хоста — записать это в документацию как
+известное ограничение.
 
 ### Тело `PUT /auth/rank`
 

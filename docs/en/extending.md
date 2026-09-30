@@ -133,8 +133,8 @@ whole set a player can type.
 1. Write the module (see `src/host/botCommand.js` or
    `src/host/metaCommands.js`): `{ name: '/foo', handler(ctx, gameId, args) }`.
    The context is `{ participants, chat, scripted, roundManager,
-   voteCoordinator, timerManager, playerDataSync, teams, spectatorTeam,
-   spectatorId, isDevMode }`.
+voteCoordinator, timerManager, playerDataSync, teams, spectatorTeam,
+spectatorId, isDevMode }`.
 2. Add it to the `chatCommands` array in `src/host/index.js`.
 3. If it answers in chat, add the message code to
    `src/host/systemMessages.js` (group `g` — the engine owns
@@ -162,13 +162,13 @@ have to opt out of scaling.
 
 All of it lives in `core/` and is shared between the host and the predictor:
 
-| Change | Where | Then |
-| --- | --- | --- |
-| turn rate, speed, growth curves | `core/src/motion.rs` + `src/data/models.js` | `npm run core:build`, `npm run core:test`, `movement.json` |
-| what kills whom | `core/src/game.rs` (section 2 of the fixed step) | `npm run core:test`, `crash-and-respawn.json`, `growth.json` |
-| crystal field rules | `core/src/crystals.rs` + `world` in `models.js` | `npm run core:build`, `growth.json` |
-| bot behaviour | `core/src/game.rs`, `drive_bot` | `bots.json` |
-| the wire | `src/config/snapshot.js` + the row builders in `game.rs` | `npm run check:contract`, every scenario |
+| Change                          | Where                                                    | Then                                                         |
+| ------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
+| turn rate, speed, growth curves | `core/src/motion.rs` + `src/data/models.js`              | `npm run core:build`, `npm run core:test`, `movement.json`   |
+| what kills whom                 | `core/src/game.rs` (section 2 of the fixed step)         | `npm run core:test`, `crash-and-respawn.json`, `growth.json` |
+| crystal field rules             | `core/src/crystals.rs` + `world` in `models.js`          | `npm run core:build`, `growth.json`                          |
+| bot behaviour                   | `core/src/game.rs`, `drive_bot`                          | `bots.json`                                                  |
+| the wire                        | `src/config/snapshot.js` + the row builders in `game.rs` | `npm run check:contract`, every scenario                     |
 
 Moving logic **out** of `motion.rs` is the one change to avoid: it is the file
 the client predictor and the authoritative step share, and the parity suite

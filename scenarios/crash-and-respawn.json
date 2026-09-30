@@ -6,10 +6,28 @@
   "timeline": [
     { "tick": 0, "op": "join", "who": "p1", "team": "players" },
 
-    { "tick": 1000, "op": "key", "who": "p1", "action": "down", "name": "respawn" },
-    { "tick": 1002, "op": "key", "who": "p1", "action": "up", "name": "respawn" },
+    {
+      "tick": 1000,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "respawn"
+    },
+    {
+      "tick": 1002,
+      "op": "key",
+      "who": "p1",
+      "action": "up",
+      "name": "respawn"
+    },
 
-    { "tick": 1100, "op": "key", "who": "p1", "action": "down", "name": "right" },
+    {
+      "tick": 1100,
+      "op": "key",
+      "who": "p1",
+      "action": "down",
+      "name": "right"
+    },
     { "tick": 1300, "op": "key", "who": "p1", "action": "up", "name": "right" }
   ],
   "unusedSnapshotKeys": ["c1"],

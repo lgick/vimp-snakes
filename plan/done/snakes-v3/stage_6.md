@@ -9,24 +9,24 @@
 копии в одной и той же правке — `docs/en/` (канонический) и `docs/ru/`
 (та же структура, тот же порядок разделов).
 
-| Страница | Что переписать |
-| --- | --- |
-| `docs/{en,ru}/gameplay.md` | раздел про очки: игра = жизнь, буст вычитает счёт, три рейтинга (день — лучшая игра, месяц — сумма, всё время — суточный снимок), награды за топ-10, таблица `Tab`, `/rank` |
-| `docs/{en,ru}/configuration.md` | схема `stat` без `rank`, режим `leaderboard` в клиентской половине, `playerState.best` как «лучший счёт за жизнь», `componentDependencies: accolades` |
-| `docs/{en,ru}/core.md` | новое событие `burn` в списке custom-событий ядра |
-| `docs/{en,ru}/architecture.md` | решение №1 переписывается целиком: игра сообщает результат игры, а раскладку по трём рейтингам делает движок; убрать описание «1 очко за 25 кристаллов» |
-| `docs/{en,ru}/extending.md` | как игра рисует награду по месту (сервис `accolades`) |
-| `CLAUDE.md` | из блока «Contract constants» и «decisions» уходит `CRYSTALS_PER_RANK`; вместо него — `addPlayerPoints`/`finishPlayerGame` |
+| Страница                        | Что переписать                                                                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/{en,ru}/gameplay.md`      | раздел про очки: игра = жизнь, буст вычитает счёт, три рейтинга (день — лучшая игра, месяц — сумма, всё время — суточный снимок), награды за топ-10, таблица `Tab`, `/rank` |
+| `docs/{en,ru}/configuration.md` | схема `stat` без `rank`, режим `leaderboard` в клиентской половине, `playerState.best` как «лучший счёт за жизнь», `componentDependencies: accolades`                       |
+| `docs/{en,ru}/core.md`          | новое событие `burn` в списке custom-событий ядра                                                                                                                           |
+| `docs/{en,ru}/architecture.md`  | решение №1 переписывается целиком: игра сообщает результат игры, а раскладку по трём рейтингам делает движок; убрать описание «1 очко за 25 кристаллов»                     |
+| `docs/{en,ru}/extending.md`     | как игра рисует награду по месту (сервис `accolades`)                                                                                                                       |
+| `CLAUDE.md`                     | из блока «Contract constants» и «decisions» уходит `CRYSTALS_PER_RANK`; вместо него — `addPlayerPoints`/`finishPlayerGame`                                                  |
 
 ## Документация движка и auth (`/Users/dmitry/Sites/my/vimp`)
 
-| Страница | Что |
-| --- | --- |
-| `docs/ai/03-host-plugin.md` | `addPlayerPoints`/`finishPlayerGame`/`getPlayerRating`/`refreshPlayerPlacement`, правила предела синхронизации, `flushPlayerData({ urgent })` |
-| `docs/ai/04-client-plugin.md` | пятый сервис пула — `accolades` (таблица сервисов, §Dependencies), режим stat `leaderboard`, `ENGINE_API_VERSION = 4` |
-| `docs/{en,ru}/auth.md` | новая семантика леджера (`delta` = сумма очков, `best` = лучшая игра), три агрегации, суточная задача, пределы |
-| `docs/{en,ru}/configuration.md` (движка) | `master:placement:cacheTtl`, `master:playerData:writesPerMinute`, `maxGameScore` в `master:games[]`, блок `playerData` в `lobby.js` |
-| `docs/{en,ru}/plugin-api.md` | версия контракта и что она ломает |
+| Страница                                 | Что                                                                                                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/ai/03-host-plugin.md`              | `addPlayerPoints`/`finishPlayerGame`/`getPlayerRating`/`refreshPlayerPlacement`, правила предела синхронизации, `flushPlayerData({ urgent })` |
+| `docs/ai/04-client-plugin.md`            | пятый сервис пула — `accolades` (таблица сервисов, §Dependencies), режим stat `leaderboard`, `ENGINE_API_VERSION = 4`                         |
+| `docs/{en,ru}/auth.md`                   | новая семантика леджера (`delta` = сумма очков, `best` = лучшая игра), три агрегации, суточная задача, пределы                                |
+| `docs/{en,ru}/configuration.md` (движка) | `master:placement:cacheTtl`, `master:playerData:writesPerMinute`, `maxGameScore` в `master:games[]`, блок `playerData` в `lobby.js`           |
+| `docs/{en,ru}/plugin-api.md`             | версия контракта и что она ломает                                                                                                             |
 
 ## Полный прогон
 

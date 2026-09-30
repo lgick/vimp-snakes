@@ -144,12 +144,13 @@ free-form `gameConfig.parts.*` key reaches the client config but never a part
    **The game reports a result; the engine splits it.** The daily best, the
    monthly sum and the all-time total are computed from that one number by the
    engine and the auth service, and the game does no "delta against today's
-   value" arithmetic of its own. It does not decide *when* the number is
+   value" arithmetic of its own. It does not decide _when_ the number is
    written either: `vimp.flushPlayerData()` is a request, and the interval,
    the per-room queue and the backoff belong to `PlayerDataSync`. What comes
    back the other way is a place — the `accolades` client service — and the
    game's only say in it is how a place is drawn (a diamond pattern, a crown)
    and what `Tab` shows (`mode: 'leaderboard'`).
+
 2. **Game ids are STRINGS.** The engine hands them out as
    `counter.toString(10)` and keys its participant Map by them, while the core
    writes them into `custom` events as numbers — everything crossing that seam
@@ -174,6 +175,7 @@ free-form `gameConfig.parts.*` key reaches the client config but never a part
    the one the next round starts on (vimp-engine ≥ 0.22.1), so a newcomer draws
    the right circle from its first frame and `_broadcast` is the safety net
    rather than the main channel.
+
 4. **Turning has one function, two sources.** Keys and the pointer target
    (`MoveInput.aim`, a world point from the engine's `apply_aim`) both reduce
    to the clamped step of `motion::step_angle`, so a mouse never out-turns

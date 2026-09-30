@@ -80,9 +80,13 @@ export function createAccolades() {
   let places = {};
 
   return {
-    apply(data) { places = data || {}; },
+    apply(data) {
+      places = data || {};
+    },
     // { daily: place|null, monthly: place|null } — всегда объект
-    placeOf(id) { return places[String(id)] || { daily: null, monthly: null }; },
+    placeOf(id) {
+      return places[String(id)] || { daily: null, monthly: null };
+    },
   };
 }
 ```

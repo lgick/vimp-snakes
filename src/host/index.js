@@ -8,11 +8,7 @@ import createModules, {
   getStatBridge,
 } from './createModules.js';
 import botCommand from './botCommand.js';
-import {
-  nameCommand,
-  newRoundCommand,
-  rankCommand,
-} from './metaCommands.js';
+import { nameCommand, newRoundCommand, rankCommand } from './metaCommands.js';
 import systemMessages from './systemMessages.js';
 import { isNodeCore, loadNodeCore, loadWebCore } from './nodeCore.js';
 

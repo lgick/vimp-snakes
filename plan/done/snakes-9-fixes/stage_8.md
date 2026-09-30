@@ -32,7 +32,7 @@ style.css` красятся только `html`/`body` (строки 8-22) — �
 
 - **`packages/engine/src/client/style.css`** — правило на полотно игры:
   контейнер получает `display: flex; align-items: center; justify-content:
-  center` (либо канвас — `position: absolute` с отступами от уже посчитанных
+center` (либо канвас — `position: absolute` с отступами от уже посчитанных
   `resize` размеров). Математику `resize` не трогать: позиционируется готовый
   элемент.
 - Учесть, что `#panel` — `position: absolute; top: 0` поверх полотна

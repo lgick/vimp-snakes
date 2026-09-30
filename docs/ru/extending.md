@@ -133,8 +133,8 @@
 1. Напишите модуль (см. `src/host/botCommand.js` или
    `src/host/metaCommands.js`): `{ name: '/foo', handler(ctx, gameId, args) }`.
    Контекст — `{ participants, chat, scripted, roundManager, voteCoordinator,
-   timerManager, playerDataSync, teams, spectatorTeam, spectatorId,
-   isDevMode }`.
+timerManager, playerDataSync, teams, spectatorTeam, spectatorId,
+isDevMode }`.
 2. Добавьте в массив `chatCommands` в `src/host/index.js`.
 3. Если команда отвечает в чат, заведите код в `src/host/systemMessages.js`
    (группа `g` — движку принадлежат `s`/`v`/`m`/`c`/`n`, а коды сливаются
@@ -161,13 +161,13 @@
 
 Всё это живёт в `core/` и делится между хостом и предиктором:
 
-| Изменение | Где | Затем |
-| --- | --- | --- |
-| скорость поворота, скорость, кривые роста | `core/src/motion.rs` + `src/data/models.js` | `npm run core:build`, `npm run core:test`, `movement.json` |
-| кто кого убивает | `core/src/game.rs` (проход 2 фиксированного шага) | `npm run core:test`, `crash-and-respawn.json`, `growth.json` |
-| правила поля кристаллов | `core/src/crystals.rs` + `world` в `models.js` | `npm run core:build`, `growth.json` |
-| поведение ботов | `core/src/game.rs`, `drive_bot` | `bots.json` |
-| провод | `src/config/snapshot.js` + сборка строк в `game.rs` | `npm run check:contract`, все сценарии |
+| Изменение                                 | Где                                                 | Затем                                                        |
+| ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| скорость поворота, скорость, кривые роста | `core/src/motion.rs` + `src/data/models.js`         | `npm run core:build`, `npm run core:test`, `movement.json`   |
+| кто кого убивает                          | `core/src/game.rs` (проход 2 фиксированного шага)   | `npm run core:test`, `crash-and-respawn.json`, `growth.json` |
+| правила поля кристаллов                   | `core/src/crystals.rs` + `world` в `models.js`      | `npm run core:build`, `growth.json`                          |
+| поведение ботов                           | `core/src/game.rs`, `drive_bot`                     | `bots.json`                                                  |
+| провод                                    | `src/config/snapshot.js` + сборка строк в `game.rs` | `npm run check:contract`, все сценарии                       |
 
 Единственное изменение, которого стоит избегать, — вынос логики **из**
 `motion.rs`: это файл, который делят клиентский предиктор и авторитетный шаг, а

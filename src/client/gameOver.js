@@ -97,7 +97,9 @@ export default class GameOver {
 
     this._crystals = root.querySelector(`.${OVERLAY_ID}-score span`);
     this._total = root.querySelector(`.${OVERLAY_ID}-total span`);
-    root.querySelector('button').addEventListener('click', () => this._respawn());
+    root
+      .querySelector('button')
+      .addEventListener('click', () => this._respawn());
 
     document.body.appendChild(root);
 

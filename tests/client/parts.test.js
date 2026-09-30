@@ -20,7 +20,14 @@ const SPINE_POINTS = 16;
 /// (bit 0 boost, bit 1 spawn grace).
 /// `points` is head-first; missing ones collapse onto the head, the way a
 /// just-spawned snake arrives.
-function snakeRow({ points = [[100, 200]], angle = 0, radius = 14, crystals = 0, color = 0, boost = 0 } = {}) {
+function snakeRow({
+  points = [[100, 200]],
+  angle = 0,
+  radius = 14,
+  crystals = 0,
+  color = 0,
+  boost = 0,
+} = {}) {
   const row = [];
 
   for (let i = 0; i < SPINE_POINTS; i += 1) {
@@ -91,7 +98,10 @@ describe('Snake', () => {
   });
 
   it('still draws the boost glow while the grace bit is set too', () => {
-    const points = [[100, 200], [40, 200]];
+    const points = [
+      [100, 200],
+      [40, 200],
+    ];
     const snake = new Snake(snakeRow({ points }));
     const stroke = vi.spyOn(snake._body, 'stroke');
 
@@ -158,7 +168,7 @@ describe('Snake', () => {
     expect(() => snake.destroy()).not.toThrow();
   });
 
-  it('says nothing for somebody else\'s snake', () => {
+  it("says nothing for somebody else's snake", () => {
     const soundManager = { registerSound: vi.fn() };
     // built for entity '02' while the local player is '01'
     const snake = new Snake(
@@ -203,7 +213,12 @@ describe('Snake', () => {
   it('stays silent, loudly, on an engine without the localPlayer service', () => {
     const soundManager = { registerSound: vi.fn() };
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const snake = new Snake(snakeRow({ crystals: 3 }), {}, { soundManager }, { id: '01' });
+    const snake = new Snake(
+      snakeRow({ crystals: 3 }),
+      {},
+      { soundManager },
+      { id: '01' },
+    );
 
     snake.update(snakeRow({ crystals: 6 }));
     snake.destroy();
@@ -350,7 +365,11 @@ describe('Snake', () => {
   });
 
   it('wears both badges at once', () => {
-    const points = [[100, 200], [40, 200], [-20, 200]];
+    const points = [
+      [100, 200],
+      [40, 200],
+      [-20, 200],
+    ];
     const snake = new Snake(
       snakeRow({ points }),
       { crown: Texture.EMPTY },
@@ -445,7 +464,9 @@ describe('Crystal', () => {
     expect(crystal.x).toBe(300);
     expect(crystal.y).toBe(400);
     expect(crystal.zIndex).toBe(2);
-    expect(crystal.children[0].scale.x).toBeCloseTo(CRYSTAL_TIERS[2].radius / 32);
+    expect(crystal.children[0].scale.x).toBeCloseTo(
+      CRYSTAL_TIERS[2].radius / 32,
+    );
 
     crystal.destroy();
   });
@@ -463,7 +484,9 @@ describe('Crystal', () => {
   it('falls back to the smallest tier for an index it does not know', () => {
     const crystal = new Crystal([0, 0, 99, 0], assets);
 
-    expect(crystal.children[0].scale.x).toBeCloseTo(CRYSTAL_TIERS[0].radius / 32);
+    expect(crystal.children[0].scale.x).toBeCloseTo(
+      CRYSTAL_TIERS[0].radius / 32,
+    );
 
     crystal.destroy();
   });

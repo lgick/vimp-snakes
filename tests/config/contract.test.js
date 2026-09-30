@@ -118,7 +118,10 @@ describe('client config', () => {
     for (const entries of Object.values(bakedAssets)) {
       for (const entry of entries) {
         expect(clientPlugin.bakers[entry.name], entry.name).toBeDefined();
-        expect(entitiesOnCanvas[entry.component], entry.component).toBeDefined();
+        expect(
+          entitiesOnCanvas[entry.component],
+          entry.component,
+        ).toBeDefined();
       }
     }
   });
@@ -194,14 +197,18 @@ describe('client config', () => {
   // checks this too — it is here because it is THIS game's declaration
   it('declares the same mode on the host half', () => {
     expect(hostPlugin.gameConfig.statMode).toBe('leaderboard');
-    expect(hostPlugin.gameConfig.statMode).toBe(clientConfig.modules.stat.params.mode);
+    expect(hostPlugin.gameConfig.statMode).toBe(
+      clientConfig.modules.stat.params.mode,
+    );
   });
 
   // the client asks nobody: the top arrives on the accolades port, pushed by
   // the host. A refresh interval here would mean a request from the match
   it('has no refresh interval of its own: the top is pushed, not fetched', () => {
     expect(clientConfig.modules.stat.params.refreshMs).toBeUndefined();
-    expect(clientConfig.parts.componentDependencies.accolades).toContain('Snake');
+    expect(clientConfig.parts.componentDependencies.accolades).toContain(
+      'Snake',
+    );
   });
 
   it('keeps the host schema at name, status, score and ping', () => {

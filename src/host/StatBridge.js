@@ -183,9 +183,10 @@ export default class StatBridge {
       return;
     }
 
-    const killerId = data.killer === null || data.killer === undefined
-      ? null
-      : String(data.killer);
+    const killerId =
+      data.killer === null || data.killer === undefined
+        ? null
+        : String(data.killer);
 
     if (killerId !== null && killerId !== gameId) {
       const killer = this._record(killerId);

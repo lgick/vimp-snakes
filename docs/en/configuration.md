@@ -24,25 +24,25 @@ schema from `src/data/` and `src/config/`.
 
 ### Core parameters
 
-| Parameter | Value | Description |
-| --- | --- | --- |
-| `title` | `'Snakes'` | Shown by the lobby and the auth screen |
-| `parts.models` | `src/data/models.js` | Snake classes; passed verbatim to both cores |
-| `parts.weapons` | `{}` | No weapons — the path is asserted at boot, so it exists and stays empty |
-| `parts.friendlyFire` | `false` | No such rule either; asserted, so it stays declared |
-| `snapshot` | `src/config/snapshot.js` | The wire layout |
-| `maps` / `currentMap` | `{ arena }` / `'arena'` | The single map |
-| `mapScale` | `1` | The engine's scaling pass is a copy |
-| `mapSetId` | `'c1'` | Fallback snapshot key for a map without its own |
-| `mapsInVote` | `1` | There is nothing to vote on; the key is still read |
-| `soundCues` | all five `null` | Every engine cue fires off round/kill machinery this game does not use |
-| `playerState.defaultState` | `{ best: 0, eaten: 0 }` | The starting profile on the auth service — opaque to the engine, written by `StatBridge` |
-| `noSpectators` | `true` | One team, the joiner goes straight into it, no vote on the way in |
-| `endlessRound` | `true` | The engine never restarts the round or wipes the stat table by itself |
-| `teams` | `{ players: 1 }` | Exactly one team — required by `noSpectators` |
-| `scripted` | `namePrefix: 'Snake', defaultModel: 's1'` | Bot naming and class |
-| `roomDefaults.maxPlayers` | `32` | The room ceiling, published in the manifest; the map must seat it |
-| `roomForm` | `maxPlayers`, `map` | The lobby's create-server form. `roundTime`/`mapTime`/`friendlyFire` are deliberately absent |
+| Parameter                  | Value                                     | Description                                                                                  |
+| -------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `title`                    | `'Snakes'`                                | Shown by the lobby and the auth screen                                                       |
+| `parts.models`             | `src/data/models.js`                      | Snake classes; passed verbatim to both cores                                                 |
+| `parts.weapons`            | `{}`                                      | No weapons — the path is asserted at boot, so it exists and stays empty                      |
+| `parts.friendlyFire`       | `false`                                   | No such rule either; asserted, so it stays declared                                          |
+| `snapshot`                 | `src/config/snapshot.js`                  | The wire layout                                                                              |
+| `maps` / `currentMap`      | `{ arena }` / `'arena'`                   | The single map                                                                               |
+| `mapScale`                 | `1`                                       | The engine's scaling pass is a copy                                                          |
+| `mapSetId`                 | `'c1'`                                    | Fallback snapshot key for a map without its own                                              |
+| `mapsInVote`               | `1`                                       | There is nothing to vote on; the key is still read                                           |
+| `soundCues`                | all five `null`                           | Every engine cue fires off round/kill machinery this game does not use                       |
+| `playerState.defaultState` | `{ best: 0, eaten: 0 }`                   | The starting profile on the auth service — opaque to the engine, written by `StatBridge`     |
+| `noSpectators`             | `true`                                    | One team, the joiner goes straight into it, no vote on the way in                            |
+| `endlessRound`             | `true`                                    | The engine never restarts the round or wipes the stat table by itself                        |
+| `teams`                    | `{ players: 1 }`                          | Exactly one team — required by `noSpectators`                                                |
+| `scripted`                 | `namePrefix: 'Snake', defaultModel: 's1'` | Bot naming and class                                                                         |
+| `roomDefaults.maxPlayers`  | `32`                                      | The room ceiling, published in the manifest; the map must seat it                            |
+| `roomForm`                 | `maxPlayers`, `map`                       | The lobby's create-server form. `roundTime`/`mapTime`/`friendlyFire` are deliberately absent |
 
 `timers` is merged **shallowly** over the engine's `hostDefaults`, so
 overriding it restates every key. `roundTime` and `mapTime` are pinned at
@@ -80,7 +80,7 @@ crystal count — written by `StatBridge._recordBest` on every death.
 
 The ratings themselves are not stored here. One life is one game: the bridge
 reports its result with `vimp.addPlayerPoints(gameId, score)` +
-`vimp.finishPlayerGame(gameId)` and then *asks* for a write with
+`vimp.finishPlayerGame(gameId)` and then _asks_ for a write with
 `vimp.flushPlayerData({ urgent: true })` — the daily best, the monthly sum and
 the all-time total are the engine's split of that one number, and how often it
 reaches the database is the engine's decision too (see
@@ -103,11 +103,11 @@ the client must declare a `type: 'time'` field for it.
 
 ### Keys (`playerKeys`)
 
-| Action | Bit | Kind |
-| --- | --- | --- |
-| `left` | `1 << 0` | held |
-| `right` | `1 << 1` | held |
-| `boost` | `1 << 2` | held |
+| Action    | Bit      | Kind                                                     |
+| --------- | -------- | -------------------------------------------------------- |
+| `left`    | `1 << 0` | held                                                     |
+| `right`   | `1 << 1` | held                                                     |
+| `boost`   | `1 << 2` | held                                                     |
 | `respawn` | `1 << 3` | `type: 1` — one-shot, consumed by exactly one fixed step |
 
 Every name here must have a key in `keySetList[1]` (`client.js`) or it can
@@ -135,7 +135,7 @@ is why disabling an engine key means overwriting it, not dropping it).
   crystal count every frame.
 - **`componentDependencies`** — engine services only, and all three go to
   `Snake`: `soundManager` (a snake plays the pickup cue only for the player of
-  *this* tab — thirty snakes eating at once is a wall of noise), `localPlayer`
+  _this_ tab — thirty snakes eating at once is a wall of noise), `localPlayer`
   ("is this snake mine?") and `accolades` ("what place does this snake hold in
   the game's global top?" — the part asks at draw time and draws the diamonds
   of the daily top ten or the crown of the monthly one). `accolades` is the
@@ -250,12 +250,12 @@ One snake class, `s1`. The key is the model name: it is the snapshot block key
 of the snake, the value of the auth form's `model` field and
 `gameConfig.scripted.defaultModel`.
 
-| Group | Fields |
-| --- | --- |
-| movement | `baseSpeed` 260, `boostFactor` 1.9, `turnSpeed` 3.4, `turnSpeedFalloff` 0.18, `turnSpeedMin` 1.4 |
-| body | `baseRadius` 14, `radiusGain` 1.6, `baseLength` 150, `lengthPerCrystal` 9, `pointSpacing` 6 |
-| boost | `boostDrainPerSecond` 6, `boostMinCrystals` 2 |
-| `world` | `maxCrystals` 60, `spawnInterval` 0.35, `tierWeights` `[70, 25, 5]`, `tiers` (from `palette.js`), `dropRatio` 0.8, `edgeMargin` 60, `startCrystals` 0, `spawnGraceSeconds` 2 |
+| Group    | Fields                                                                                                                                                                       |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| movement | `baseSpeed` 260, `boostFactor` 1.9, `turnSpeed` 3.4, `turnSpeedFalloff` 0.18, `turnSpeedMin` 1.4                                                                             |
+| body     | `baseRadius` 14, `radiusGain` 1.6, `baseLength` 150, `lengthPerCrystal` 9, `pointSpacing` 6                                                                                  |
+| boost    | `boostDrainPerSecond` 6, `boostMinCrystals` 2                                                                                                                                |
+| `world`  | `maxCrystals` 60, `spawnInterval` 0.35, `tierWeights` `[70, 25, 5]`, `tiers` (from `palette.js`), `dropRatio` 0.8, `edgeMargin` 60, `startCrystals` 0, `spawnGraceSeconds` 2 |
 
 **Why the world rules live inside a model**: the `game` half of the init JSON
 is assembled by the engine from a fixed field set (`friendlyFire`, `models`,
@@ -289,14 +289,14 @@ The single map, and the only file in the game that knows a size. It exports a
 participants, and the default export (`buildArena(0)`) is what
 `scripts/export-maps.js` writes into `dist/maps/arena.json`.
 
-| Constant | Value | Meaning |
-| --- | --- | --- |
-| `STEP` | 128 | world units per cell |
-| `BASE_SIZE` / `BASE_PLAYERS` | 20 / 8 | the size the game is tuned at (2560 wide, radius 1280) |
-| `PLAYER_STEP` | 4 | population is rounded up to a multiple of this before the size is computed |
-| `RESPAWN_COUNT` | 64 | the hard capacity of the team on this map — deliberately double `maxPlayers` |
-| `RESPAWN_SPAN` | 0.72 | how far out the outermost respawn point may sit |
-| `RESPAWN_FAN_DEG` | 25 | how far a fresh heading may deviate from "straight at the centre" |
+| Constant                     | Value  | Meaning                                                                      |
+| ---------------------------- | ------ | ---------------------------------------------------------------------------- |
+| `STEP`                       | 128    | world units per cell                                                         |
+| `BASE_SIZE` / `BASE_PLAYERS` | 20 / 8 | the size the game is tuned at (2560 wide, radius 1280)                       |
+| `PLAYER_STEP`                | 4      | population is rounded up to a multiple of this before the size is computed   |
+| `RESPAWN_COUNT`              | 64     | the hard capacity of the team on this map — deliberately double `maxPlayers` |
+| `RESPAWN_SPAN`               | 0.72   | how far out the outermost respawn point may sit                              |
+| `RESPAWN_FAN_DEG`            | 25     | how far a fresh heading may deviate from "straight at the centre"            |
 
 `arenaSizeFor(count) = round(BASE_SIZE * sqrt(max(stepped, 8) / 8))`.
 Respawns are a sunflower spiral (`GOLDEN_ANGLE`, `sqrt` radius so the points

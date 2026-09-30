@@ -192,20 +192,20 @@ cd vimp
 npm run sim -- --game ../vimp-snakes --scenario ../vimp-snakes/scenarios/movement.json --determinism
 ```
 
-| Scenario | Exercises |
-| --- | --- |
-| `movement.json` | cruising and turning, with prediction drift checked against tight thresholds |
-| `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key |
-| `growth.json` | two players, three bots, crystals, the boost, `/bot` |
-| `pointer.json` | steering to a point with mouse/finger, the keyboard taking over mid-run, the double-tap boost |
-| `bots.json` | `/bot <count>` as a SET: six bots, then two, then a refused count, then none |
-| `arena-shrink.json` | twelve join and eight leave: the arena shrinks a whole step, and the crystals of the old ring go with it |
+| Scenario                 | Exercises                                                                                                |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `movement.json`          | cruising and turning, with prediction drift checked against tight thresholds                             |
+| `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key                                                 |
+| `growth.json`            | two players, three bots, crystals, the boost, `/bot`                                                     |
+| `pointer.json`           | steering to a point with mouse/finger, the keyboard taking over mid-run, the double-tap boost            |
+| `bots.json`              | `/bot <count>` as a SET: six bots, then two, then a refused count, then none                             |
+| `arena-shrink.json`      | twelve join and eight leave: the arena shrinks a whole step, and the crystals of the old ring go with it |
 
 All six are expected to pass with `--determinism`. Two invariants skip by
 design: `roundLifecycle` (this game has no round end) and, in four of the
 six scenarios, `predictionDrift` (a crash and a respawn are legitimate
 one-off spikes — `movement.json` and `pointer.json` are the two that watch for
-drift that *grows*).
+drift that _grows_).
 
 The runner exercises the **real** core, so it needs the same
 `vimp-engine-core` version the engine build expects. When working against a

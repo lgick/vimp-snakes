@@ -54,6 +54,8 @@ describe('ChatColors', () => {
   it('survives an engine without setChatColor', () => {
     const colors = new ChatColors({ participants: {} });
 
-    expect(() => colors.onCoreEvent({ type: 'spawn', id: 1, color: 0 })).not.toThrow();
+    expect(() =>
+      colors.onCoreEvent({ type: 'spawn', id: 1, color: 0 }),
+    ).not.toThrow();
   });
 });

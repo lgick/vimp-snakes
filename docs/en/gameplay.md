@@ -95,7 +95,7 @@ Three ways a life ends, and only one of them is somebody else's doing:
 
 - **The edge** — your head leaves the disc. Nobody is credited.
 - **Another snake in front of you** — your head runs into a body that lies
-  *ahead* of it (`BodyPath::touches_ahead`). The crash belongs to whoever
+  _ahead_ of it (`BodyPath::touches_ahead`). The crash belongs to whoever
   drove into it: a snake that swings into you from the side or from behind
   takes itself out and leaves you alone. Two snakes meeting head on are both
   driving into each other, and both die.
@@ -117,14 +117,14 @@ around you.
 (no kill is reported), so `src/host/StatBridge.js` keeps the numbers itself,
 per game id, and a **respawn** resets all of them:
 
-| Number | Meaning |
-| --- | --- |
-| `eaten` | crystals swallowed during this life (internal) |
-| `kills` | snakes that crashed into this one during this life (internal) |
+| Number  | Meaning                                                          |
+| ------- | ---------------------------------------------------------------- |
+| `eaten` | crystals swallowed during this life (internal)                   |
+| `kills` | snakes that crashed into this one during this life (internal)    |
 | `score` | `eaten + 15 * kills` minus what the boost burnt, floored at zero |
 
 The reset happens on the respawn and not on the death: the result overlay
-reads the score off the HUD panel *after* the crash, so zeroing it there would
+reads the score off the HUD panel _after_ the crash, so zeroing it there would
 show the player a zero instead of their result.
 
 A kill pays a flat bonus and nothing else: the victim keeps its own score, and
@@ -145,10 +145,10 @@ crash would spend the room's whole write budget on deaths — nothing is lost by
 waiting, the points sit in the engine's pending counters. What that one number
 means in each rating is the platform's decision, not the game's:
 
-| Rating | Rule |
-| --- | --- |
-| daily | the best result of a SINGLE game over the UTC day, live, reset at 00:00 UTC |
-| monthly | the SUM of every game of the calendar UTC month, live |
+| Rating   | Rule                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| daily    | the best result of a SINGLE game over the UTC day, live, reset at 00:00 UTC                                        |
+| monthly  | the SUM of every game of the calendar UTC month, live                                                              |
 | all-time | the sum over all time, recomputed once a day — both the list and your own row show the snapshot taken at 00:00 UTC |
 
 The lifetime profile follows the same event: `playerState.best` is the best
@@ -156,7 +156,7 @@ score of a single life ever played, `playerState.eaten` the crystals swallowed
 over all of them.
 
 How often any of this reaches the database is the ENGINE's business — the game
-only ever *requests* a flush, and `lobbyConfig.playerData` holds the interval,
+only ever _requests_ a flush, and `lobbyConfig.playerData` holds the interval,
 the per-room queue and the backoff. A quiet room writes nothing at all.
 
 One known gap: a player who leaves in the MIDDLE of a life reports nothing.
@@ -192,10 +192,10 @@ named.
 A place in the global top is worn on the snake itself, and everybody in the
 match sees it:
 
-| Place | Badge |
-| --- | --- |
-| daily top 10 | a diamond pattern down the body |
-| monthly top 10 | a crown over the head |
+| Place          | Badge                           |
+| -------------- | ------------------------------- |
+| daily top 10   | a diamond pattern down the body |
+| monthly top 10 | a crown over the head           |
 
 The places arrive on the client's `accolades` service (an engine service, see
 [configuration.md](configuration.md#parts--game-entities)) and are matched **by nick** through the global top — the nick is globally unique,
@@ -242,12 +242,12 @@ The engine parses none of its own: the `CommandProcessor` registry is filled
 entirely by the game through `HostPlugin.chatCommands`, so the set below is
 the whole set:
 
-| Command | Action |
-| --- | --- |
-| `/bot <N>` | Set the number of bot snakes in the arena — a SET, not an add; `/bot 0` empties it. Restarts the round (the only way to put new actors in the world), which respawns everyone |
-| `/name <nick>` | Change name (validated and broadcast by the engine) |
-| `/rank` | Your place in the DAILY rating — place, how many are ranked and the points behind it. Re-fetched from the master at the moment you ask, because the place moves with other people's games; an unranked player gets a dash |
-| `/nr` | New round — **dev mode only**; in this game a restart just respawns everyone, so it is a debugging tool, not a player's button |
+| Command                               | Action                                                                                                                                                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/bot <N>`                            | Set the number of bot snakes in the arena — a SET, not an add; `/bot 0` empties it. Restarts the round (the only way to put new actors in the world), which respawns everyone                                                       |
+| `/name <nick>`                        | Change name (validated and broadcast by the engine)                                                                                                                                                                                 |
+| `/rank`                               | Your place in the DAILY rating — place, how many are ranked and the points behind it. Re-fetched from the master at the moment you ask, because the place moves with other people's games; an unranked player gets a dash           |
+| `/nr`                                 | New round — **dev mode only**; in this game a restart just respawns everyone, so it is a debugging tool, not a player's button                                                                                                      |
 | `/like <reason>` · `/unlike <reason>` | The engine's server rating — intercepted **on the client** and sent to the master, never reaching the host. See the engine's [master.md](https://github.com/lgick/vimp-engine/blob/main/docs/en/master.md#server-rating-likeunlike) |
 
 `/timeleft` and `/mapname` are deliberately absent: they would lie here, since

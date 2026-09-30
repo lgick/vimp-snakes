@@ -8,11 +8,11 @@ One circular arena. Snakes are always moving; you steer, you never stop.
 Crystals appear at random in three sizes — eat them to grow, and the bigger the
 crystal the more you grow and the more you score.
 
-| Key | Does |
-| --- | --- |
-| `A` / `D` | turn left / right |
-| `W` | boost — nearly double speed, paid for in crystals, which drop behind you |
-| `R` | respawn after a crash (the OK button of the result screen presses it for you) |
+| Key       | Does                                                                          |
+| --------- | ----------------------------------------------------------------------------- |
+| `A` / `D` | turn left / right                                                             |
+| `W`       | boost — nearly double speed, paid for in crystals, which drop behind you      |
+| `R`       | respawn after a crash (the OK button of the result screen presses it for you) |
 
 Mouse and touch are the second way to play, and the only one a phone has:
 **press and hold** — the snake turns towards the point under the pointer, no
@@ -117,16 +117,16 @@ verification loop — see `scenarios/` below.
 
 ## Layout
 
-| Path | What |
-| --- | --- |
-| `core/` | the Rust crate `vimp-snakes-core` — movement, growth, collisions |
-| `src/host/` | HostPlugin: runs in a Web Worker, no DOM and no PixiJS |
-| `src/client/` | ClientPlugin: render parts, bakers and the result screen |
-| `src/config/` | game, client, auth, snapshot and sound configuration |
-| `src/data/` | the map, the snake model, the palette and the arena theme |
-| `scenarios/` | headless scenarios for `npm run sim` |
-| `scripts/` | build steps: bundles -> `dist/` + `manifest.json` |
-| `dev/` | the standalone dev harness — never published |
+| Path          | What                                                             |
+| ------------- | ---------------------------------------------------------------- |
+| `core/`       | the Rust crate `vimp-snakes-core` — movement, growth, collisions |
+| `src/host/`   | HostPlugin: runs in a Web Worker, no DOM and no PixiJS           |
+| `src/client/` | ClientPlugin: render parts, bakers and the result screen         |
+| `src/config/` | game, client, auth, snapshot and sound configuration             |
+| `src/data/`   | the map, the snake model, the palette and the arena theme        |
+| `scenarios/`  | headless scenarios for `npm run sim`                             |
+| `scripts/`    | build steps: bundles -> `dist/` + `manifest.json`                |
+| `dev/`        | the standalone dev harness — never published                     |
 
 Only `dist/` is published (`files: ["dist"]`).
 
@@ -168,13 +168,13 @@ From the **engine** checkout, with this package linked:
 npm run sim -- --game <path to vimp-snakes> --scenario <path>/scenarios/movement.json
 ```
 
-| Scenario | Exercises |
-| --- | --- |
-| `movement.json` | cruising and turning, with prediction drift checked against tight thresholds |
-| `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key |
-| `growth.json` | two players, three bots, crystals, the boost, `/bot` |
-| `pointer.json` | steering to a point with the mouse/finger, the keyboard taking over mid-run, the double-tap boost |
-| `bots.json` | `/bot <count>` as a SET: six bots, then two, then a refused count, then none |
+| Scenario                 | Exercises                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `movement.json`          | cruising and turning, with prediction drift checked against tight thresholds                      |
+| `crash-and-respawn.json` | driving into the boundary, staying dead, the respawn key                                          |
+| `growth.json`            | two players, three bots, crystals, the boost, `/bot`                                              |
+| `pointer.json`           | steering to a point with the mouse/finger, the keyboard taking over mid-run, the double-tap boost |
+| `bots.json`              | `/bot <count>` as a SET: six bots, then two, then a refused count, then none                      |
 
 All five are expected to pass with `--determinism`.
 The sim runs the **built** plugin (`dist/`), so `npm run build` before it or
@@ -182,7 +182,7 @@ you are testing the previous version. Two invariants skip by
 design: `roundLifecycle` (this game has no round end) and, in two of the four
 scenarios, `predictionDrift` (a crash and a respawn are legitimate one-off
 spikes — `movement.json` and `pointer.json` are the two that watch for drift
-that *grows*).
+that _grows_).
 
 ## Sounds without ffmpeg
 

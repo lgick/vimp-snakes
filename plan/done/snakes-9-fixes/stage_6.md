@@ -34,7 +34,7 @@
     «четыре числа» и «шесть колонок».
 - **`src/config/client.js`**:
   - `modules.stat.params.columns` → `['snake', 'status', 'rank', 'score',
-    'ping']`;
+'ping']`;
   - `sortList.players` → сортировка по `score` (индекс 3) убыв.; вторым
     ключом взять `rank` (индекс 2) убыв. — `eaten` в таблице больше нет, а
     прежний тай-брейк ссылался именно на него;

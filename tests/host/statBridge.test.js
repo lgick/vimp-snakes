@@ -53,8 +53,14 @@ describe('StatBridge', () => {
     // by strings, so both shapes must land on the same record; `total` is the
     // carried count, which a respawn resets and the boost burns without any
     // event at all
-    bridge.onCoreEvent({ type: 'crystals', id: '3', total: 4, gained: 4 }, { stat });
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 2, gained: 1 }, { stat });
+    bridge.onCoreEvent(
+      { type: 'crystals', id: '3', total: 4, gained: 4 },
+      { stat },
+    );
+    bridge.onCoreEvent(
+      { type: 'crystals', id: 3, total: 2, gained: 1 },
+      { stat },
+    );
 
     expect(statOf(stat, '3')).toEqual({ score: 5 });
   });
@@ -64,7 +70,10 @@ describe('StatBridge', () => {
   // crash, and a zero there would show the player nothing of their game
   it('starts every counter over on the respawn, not on the death', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 12, gained: 12 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1, killer: null }, { panel });
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 12, crashes: 1, killer: null },
+      { panel },
+    );
 
     expect(statOf(stat, '3')).toEqual({ score: 12 });
     expect(panel.updateUser).toHaveBeenLastCalledWith('3', 'score', 12, 'set');
@@ -83,7 +92,10 @@ describe('StatBridge', () => {
   // this the fastest way to a high score would be to boost forever
   it('takes the burnt crystals off the score', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 20 }, {});
-    bridge.onCoreEvent({ type: 'burn', id: 3, burned: 3, total: 17 }, { panel });
+    bridge.onCoreEvent(
+      { type: 'burn', id: 3, burned: 3, total: 17 },
+      { panel },
+    );
 
     expect(statOf(stat, '3')).toEqual({ score: 17 });
     expect(panel.updateUser).toHaveBeenLastCalledWith('3', 'score', 17, 'set');
@@ -110,7 +122,10 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'burn', id: 3, burned: 8, total: 12 }, {});
     bridge.onCoreEvent({ type: 'death', id: 3, killer: null }, { vimp });
 
-    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 12, eaten: 20 });
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', {
+      best: 12,
+      eaten: 20,
+    });
   });
 
   it('pays the killer a flat bonus of 15 per kill', () => {
@@ -129,7 +144,10 @@ describe('StatBridge', () => {
   });
 
   it('takes nothing away from a victim with a big score', () => {
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 500, gained: 500 }, {});
+    bridge.onCoreEvent(
+      { type: 'crystals', id: 3, total: 500, gained: 500 },
+      {},
+    );
 
     bridge.onCoreEvent(
       { type: 'death', id: 3, crystals: 500, crashes: 1, killer: 7 },
@@ -145,15 +163,23 @@ describe('StatBridge', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 9, gained: 9 }, {});
     stat.updateUser.mockClear();
 
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: null }, {});
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: null },
+      {},
+    );
 
-    expect(stat.updateUser.mock.calls.every(call => call[0] === '3')).toBe(true);
+    expect(stat.updateUser.mock.calls.every(call => call[0] === '3')).toBe(
+      true,
+    );
     expect(statOf(stat, '3')).toEqual({ score: 9 });
   });
 
   it('does not pay a snake for running into itself', () => {
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 9, gained: 9 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 9, crashes: 1, killer: 3 }, {});
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 9, crashes: 1, killer: 3 },
+      {},
+    );
 
     expect(statOf(stat, '3')).toEqual({ score: 9 });
   });
@@ -274,7 +300,7 @@ describe('StatBridge', () => {
     expect(vimp.flushPlayerData).toHaveBeenCalledWith({ urgent: false });
   });
 
-  it('pays the killer BEFORE the victim\'s counters are touched', () => {
+  it("pays the killer BEFORE the victim's counters are touched", () => {
     const vimp = {
       addPlayerPoints: vi.fn(),
       finishPlayerGame: vi.fn(),
@@ -317,9 +343,18 @@ describe('StatBridge', () => {
   // test stub has whatever it was given: every one of them is optional
   it('survives an engine build with none of the new calls', () => {
     expect(() => {
-      bridge.onCoreEvent({ type: 'crystals', id: 3, gained: 9 }, { vimp: {}, panel });
-      bridge.onCoreEvent({ type: 'burn', id: 3, burned: 2 }, { vimp: {}, panel });
-      bridge.onCoreEvent({ type: 'death', id: 3, killer: 7 }, { vimp: {}, panel });
+      bridge.onCoreEvent(
+        { type: 'crystals', id: 3, gained: 9 },
+        { vimp: {}, panel },
+      );
+      bridge.onCoreEvent(
+        { type: 'burn', id: 3, burned: 2 },
+        { vimp: {}, panel },
+      );
+      bridge.onCoreEvent(
+        { type: 'death', id: 3, killer: 7 },
+        { vimp: {}, panel },
+      );
       bridge.onCoreEvent({ type: 'respawn', id: 3 }, { vimp: {}, panel });
       bridge.onCoreEvent({ type: 'population', count: 2 }, { vimp: {}, panel });
     }).not.toThrow();
@@ -328,7 +363,10 @@ describe('StatBridge', () => {
   });
 
   it('writes the score, and only the score, into the HUD panel', () => {
-    bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, { panel });
+    bridge.onCoreEvent(
+      { type: 'crystals', id: 3, total: 4, gained: 4 },
+      { panel },
+    );
 
     expect(panel.updateUser).toHaveBeenCalledWith('3', 'score', 4, 'set');
     expect(panel.updateUser).toHaveBeenCalledTimes(1);
@@ -360,9 +398,15 @@ describe('StatBridge', () => {
     };
 
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 12, gained: 12 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 12, crashes: 1 }, { vimp });
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 12, crashes: 1 },
+      { vimp },
+    );
 
-    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 12, eaten: 32 });
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', {
+      best: 12,
+      eaten: 32,
+    });
   });
 
   it('does not lower a personal best', () => {
@@ -372,9 +416,15 @@ describe('StatBridge', () => {
     };
 
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 5, gained: 5 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 5, crashes: 2 }, { vimp });
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 5, crashes: 2 },
+      { vimp },
+    );
 
-    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', { best: 30, eaten: 35 });
+    expect(vimp.setPlayerState).toHaveBeenCalledWith('3', {
+      best: 30,
+      eaten: 35,
+    });
   });
 
   it('adds each crystal to the lifetime total exactly once', () => {
@@ -387,10 +437,16 @@ describe('StatBridge', () => {
     };
 
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 10, gained: 10 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 10, crashes: 1 }, { vimp });
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 10, crashes: 1 },
+      { vimp },
+    );
     bridge.onCoreEvent({ type: 'respawn', id: 3 }, {});
     bridge.onCoreEvent({ type: 'crystals', id: 3, total: 4, gained: 4 }, {});
-    bridge.onCoreEvent({ type: 'death', id: 3, crystals: 4, crashes: 2 }, { vimp });
+    bridge.onCoreEvent(
+      { type: 'death', id: 3, crystals: 4, crashes: 2 },
+      { vimp },
+    );
 
     expect(state.eaten).toBe(14);
     // `best` is the top score of a single LIFE, so the second game's 4 does
@@ -400,7 +456,10 @@ describe('StatBridge', () => {
 
   it('ignores an id that is not a participant any more', () => {
     // a snake can crash on the same tick its player disconnects
-    bridge.onCoreEvent({ type: 'crystals', id: 99, total: 5, gained: 5 }, { panel });
+    bridge.onCoreEvent(
+      { type: 'crystals', id: 99, total: 5, gained: 5 },
+      { panel },
+    );
 
     expect(stat.updateUser).not.toHaveBeenCalled();
     expect(panel.updateUser).not.toHaveBeenCalled();

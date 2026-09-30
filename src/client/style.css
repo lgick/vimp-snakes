@@ -46,7 +46,9 @@
  */
 #stat .stat-leaderboard {
   padding: 12px 0;
-  font: 400 16px/1.6 system-ui, sans-serif;
+  font:
+    400 16px/1.6 system-ui,
+    sans-serif;
   color: #e6ecf5;
 }
 
@@ -97,7 +99,9 @@
   align-items: center;
   justify-content: center;
   background: rgb(6 10 20 / 62%);
-  font: 400 16px/1.5 system-ui, sans-serif;
+  font:
+    400 16px/1.5 system-ui,
+    sans-serif;
   color: #e6ecf5;
 }
 

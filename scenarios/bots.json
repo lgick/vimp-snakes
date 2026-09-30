@@ -47,15 +47,8 @@
       "text": "/bot 0"
     }
   ],
-  "unusedSnapshotKeys": [
-    "c1"
-  ],
+  "unusedSnapshotKeys": ["c1"],
   "divergence": null,
   "ticks": 1600,
-  "dumpTicks": [
-    300,
-    650,
-    1100,
-    1500
-  ]
+  "dumpTicks": [300, 650, 1100, 1500]
 }

@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url';
 // being used.
 // Run: node scripts/copy-game-sounds.js (build:assets)
 
-const processedDir = fileURLToPath(new URL('../build/sounds/', import.meta.url));
+const processedDir = fileURLToPath(
+  new URL('../build/sounds/', import.meta.url),
+);
 const placeholderDir = fileURLToPath(
   new URL('../assets/sounds/', import.meta.url),
 );

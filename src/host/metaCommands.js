@@ -71,10 +71,6 @@ export const rankCommand = {
 
     // an unranked player has no place, and a dash says so — the same dash the
     // leaderboard puts in that column (src/config/client.js)
-    ctx.chat.pushSystemByUser(gameId, 'RANK', [
-      placement ?? '—',
-      total,
-      value,
-    ]);
+    ctx.chat.pushSystemByUser(gameId, 'RANK', [placement ?? '—', total, value]);
   },
 };

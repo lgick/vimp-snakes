@@ -212,7 +212,10 @@ describe('joining without spectators', () => {
       gameConfig.scripted,
     );
 
-    const gameId = participants.createHuman({ name: 'P1', model: 's1' }, 'sock');
+    const gameId = participants.createHuman(
+      { name: 'P1', model: 's1' },
+      'sock',
+    );
     const user = participants.get(gameId);
 
     expect(user.team).toBe(TEAM);
@@ -379,17 +382,20 @@ describe('meta chat commands', () => {
     );
   });
 
-  it('/rank answers the player alone, with today\'s place', async () => {
+  it("/rank answers the player alone, with today's place", async () => {
     const ctx = metaContext();
 
     await rankCommand.handler(ctx, '1', []);
 
-    expect(ctx.playerDataSync.refreshPlacement).toHaveBeenCalledWith('1', 'day');
-    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
-      3,
-      48,
-      120,
-    ]);
+    expect(ctx.playerDataSync.refreshPlacement).toHaveBeenCalledWith(
+      '1',
+      'day',
+    );
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith(
+      '1',
+      'RANK',
+      [3, 48, 120],
+    );
   });
 
   // an unranked player has no place, and the message says so with the same
@@ -423,11 +429,11 @@ describe('meta chat commands', () => {
 
     await expect(rankCommand.handler(ctx, '1', [])).resolves.toBeUndefined();
 
-    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith('1', 'RANK', [
-      3,
-      48,
-      120,
-    ]);
+    expect(ctx.chat.pushSystemByUser).toHaveBeenCalledWith(
+      '1',
+      'RANK',
+      [3, 48, 120],
+    );
   });
 
   it('/rank survives an engine that has neither call', async () => {

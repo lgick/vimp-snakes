@@ -6,11 +6,11 @@
 
 ## Три репозитория (пути абсолютные, они понадобятся)
 
-| Что | Путь | Как проверяется |
-| --- | --- | --- |
-| Игра snakes | `/Users/dmitry/Sites/my/vimp-snakes` | `npm test`, `npm run core:test`, `npm run check:contract`, `npm run sim` |
-| Движок + мастер | `/Users/dmitry/Sites/my/vimp/packages/engine` | тесты лежат НЕ в пакете: `cd /Users/dmitry/Sites/my/vimp && npm test` |
-| auth-сервис | `/Users/dmitry/Sites/my/vimp/packages/auth` | там же: `cd /Users/dmitry/Sites/my/vimp && npm test` (файлы `tests/auth/*`) |
+| Что             | Путь                                          | Как проверяется                                                             |
+| --------------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Игра snakes     | `/Users/dmitry/Sites/my/vimp-snakes`          | `npm test`, `npm run core:test`, `npm run check:contract`, `npm run sim`    |
+| Движок + мастер | `/Users/dmitry/Sites/my/vimp/packages/engine` | тесты лежат НЕ в пакете: `cd /Users/dmitry/Sites/my/vimp && npm test`       |
+| auth-сервис     | `/Users/dmitry/Sites/my/vimp/packages/auth`   | там же: `cd /Users/dmitry/Sites/my/vimp && npm test` (файлы `tests/auth/*`) |
 
 `node_modules/vimp-engine` в snakes — симлинк на пакет движка, поэтому
 правка движка видна игре сразу, без переустановки.
@@ -41,14 +41,14 @@
 
 ## Этапы
 
-| Этап | Файл | Что | Пакет | Статус |
-| --- | --- | --- | --- | --- |
-| 1 | [stage_1.md](stage_1.md) | ядро: событие `burn` | snakes (`core/`) | ✅ выполнен |
-| 2 | [stage_2.md](stage_2.md) | леджер результатов, три агрегации, суточный снимок, пределы | auth | ✅ выполнен |
-| 3 | [stage_3.md](stage_3.md) | очки игры и предел синхронизации | движок + мастер | ✅ выполнен |
-| 4 | [stage_4.md](stage_4.md) | `accolades` и режим stat «дневной топ-10» | движок | ✅ выполнен |
-| 5 | [stage_5.md](stage_5.md) | snakes: score за жизнь, отчёт результата, таблица, `/rank`, скины | snakes | ✅ выполнен |
-| 6 | [stage_6.md](stage_6.md) | документация и финальная проверка | все | ✅ выполнен |
+| Этап | Файл                     | Что                                                               | Пакет            | Статус      |
+| ---- | ------------------------ | ----------------------------------------------------------------- | ---------------- | ----------- |
+| 1    | [stage_1.md](stage_1.md) | ядро: событие `burn`                                              | snakes (`core/`) | ✅ выполнен |
+| 2    | [stage_2.md](stage_2.md) | леджер результатов, три агрегации, суточный снимок, пределы       | auth             | ✅ выполнен |
+| 3    | [stage_3.md](stage_3.md) | очки игры и предел синхронизации                                  | движок + мастер  | ✅ выполнен |
+| 4    | [stage_4.md](stage_4.md) | `accolades` и режим stat «дневной топ-10»                         | движок           | ✅ выполнен |
+| 5    | [stage_5.md](stage_5.md) | snakes: score за жизнь, отчёт результата, таблица, `/rank`, скины | snakes           | ✅ выполнен |
+| 6    | [stage_6.md](stage_6.md) | документация и финальная проверка                                 | все              | ✅ выполнен |
 
 Порядок обязателен: хост не может вычесть буст без события ядра (1); движку
 нечего отправлять, пока auth не принимает результат игры (2); `accolades` и

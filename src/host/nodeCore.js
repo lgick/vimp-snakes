@@ -20,4 +20,5 @@ export const isNodeCore = wasmUrl => (wasmUrl ?? '').endsWith('.js');
 // @vite-ignore: the path is a runtime value, Vite must not try to resolve it
 export const loadNodeCore = wasmUrl => import(/* @vite-ignore */ wasmUrl);
 
-export const loadWebCore = () => import('../../core/pkg-web/vimp_snakes_core.js');
+export const loadWebCore = () =>
+  import('../../core/pkg-web/vimp_snakes_core.js');
