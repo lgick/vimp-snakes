@@ -34,6 +34,7 @@ pub struct Crystal {
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct CrystalField {
+    #[serde(with = "crate::ordered")]
     crystals: IndexMap<u32, Crystal>,
     next_id: u32,
     spawn_timer: f32,

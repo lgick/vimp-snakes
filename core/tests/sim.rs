@@ -517,6 +517,75 @@ fn serialize_deserialize_round_trips_the_frame() {
     );
 }
 
+#[test]
+fn a_restored_core_replays_the_match_step_for_step() {
+    // 30 bots: ids 0..29 are exactly the ones a JSON object sorted as strings
+    // reorders ("10" before "2"). Crystals on, so pickups and burns spend the
+    // Rng and the order of the walk decides the match.
+    const BOTS: u32 = 30;
+
+    let mut core = make_core(20, 60);
+
+    for id in 0..BOTS {
+        let a = id as f32 * std::f32::consts::TAU / BOTS as f32;
+        let r = 900.0;
+
+        core.spawn_scripted_actor(
+            id,
+            "s1",
+            1,
+            CENTRE + a.cos() * r,
+            CENTRE + a.sin() * r,
+            a.to_degrees() + 90.0,
+        )
+        .unwrap();
+    }
+
+    // a minute of play: graces expire, bots eat, boost, crash and respawn
+    steps(&mut core, 120 * 60);
+    // the dump expects drained snapshot accumulators
+    let _ = frame(&mut core, 1);
+
+    let dump = core.serialize_state().unwrap();
+    let mut restored = make_core(20, 60);
+
+    restored.deserialize_state(&dump).unwrap();
+
+    for step in 0..600 {
+        core.step(DT);
+        restored.step(DT);
+
+        for id in 0..BOTS {
+            assert_eq!(
+                core.is_alive(id),
+                restored.is_alive(id),
+                "step {step}: snake {id} alive state diverged"
+            );
+            assert_eq!(
+                core.position_of(id),
+                restored.position_of(id),
+                "step {step}: snake {id} position diverged"
+            );
+        }
+    }
+
+    // The first frame differs by design: a restore re-sends the whole crystal
+    // field (`request_resync`), the original only its delta. Every frame
+    // after it must be byte for byte the same
+    let _ = frame(&mut core, 2);
+    let _ = frame(&mut restored, 2);
+
+    core.step(DT);
+    restored.step(DT);
+
+    assert_eq!(
+        frame(&mut core, 3),
+        frame(&mut restored, 3),
+        "the restored core must pack the very same frame"
+    );
+    assert_eq!(core.players_data(), restored.players_data());
+}
+
 // ***** the arena follows the crowd (plan/snakes-v2 stage 3) *****
 
 /// Every `population` report in the queue, oldest first.

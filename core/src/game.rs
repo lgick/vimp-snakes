@@ -1507,6 +1507,9 @@ impl GameSim<SnakesGame> for SnakesSim {
             bots: &self.bots,
             field: &self.field,
             next_color: self.next_color,
+            since_sweep: self.since_sweep,
+            arena: self.arena,
+            spawn_slots: &self.spawn_slots,
         })
         .unwrap_or(serde_json::Value::Null)
     }
@@ -1514,14 +1517,28 @@ impl GameSim<SnakesGame> for SnakesSim {
     fn deserialize(&mut self, value: serde_json::Value) -> Result<(), String> {
         let dump: SnakesDumpOwned = serde_json::from_value(value).map_err(|e| e.to_string())?;
 
-        // a restored room has a crowd nobody has reported yet: the arena of
-        // the new host is the one the map catalog holds, not the one the old
-        // host had grown
+        // a restored room has a crowd the new host was never told about: its
+        // `ArenaScaler` starts from scratch and sizes the arena off the next
+        // report, so the next step must send one
         self.population = usize::MAX;
         self.snakes = dump.snakes;
         self.bots = dump.bots;
         self.field = dump.field;
         self.next_color = dump.next_color;
+        self.since_sweep = dump.since_sweep;
+
+        // The arena and the slots the dump was stepped on: the first step
+        // compares against the arena (a stale one reads as a resize, an
+        // unscheduled sweep), and a spawn before that step searches the
+        // slots. A dump older than these fields keeps what this core already
+        // has rather than blanking it.
+        if let Some(arena) = dump.arena {
+            self.arena = arena;
+        }
+
+        if let Some(slots) = dump.spawn_slots {
+            self.spawn_slots = slots;
+        }
 
         self.cached.clear();
         self.pending_null.clear();
@@ -1553,20 +1570,36 @@ impl GameSim<SnakesGame> for SnakesSim {
     }
 }
 
+/// The game half of `serialize_state`. The maps go out as ordered lists of
+/// pairs (`crate::ordered`): their order is part of the match, see there.
 #[derive(Serialize)]
 struct SnakesDump<'a> {
+    #[serde(serialize_with = "crate::ordered::serialize_ref")]
     snakes: &'a IndexMap<u32, Snake>,
+    #[serde(serialize_with = "crate::ordered::serialize_ref")]
     bots: &'a IndexMap<u32, Bot>,
     field: &'a CrystalField,
     next_color: u8,
+    since_sweep: u32,
+    arena: Arena,
+    spawn_slots: &'a [[f32; 3]],
 }
 
 #[derive(Deserialize)]
 struct SnakesDumpOwned {
+    #[serde(deserialize_with = "crate::ordered::deserialize")]
     snakes: IndexMap<u32, Snake>,
+    #[serde(deserialize_with = "crate::ordered::deserialize")]
     bots: IndexMap<u32, Bot>,
     field: CrystalField,
     next_color: u8,
+    // `default`: a dump written before these fields still loads
+    #[serde(default)]
+    since_sweep: u32,
+    #[serde(default)]
+    arena: Option<Arena>,
+    #[serde(default)]
+    spawn_slots: Option<Vec<[f32; 3]>>,
 }
 
 #[cfg(test)]
@@ -2456,5 +2489,127 @@ mod tests {
 
         assert_eq!(row.fields().len(), SPINE_POINTS * 2 + 5);
         assert_eq!(row.fields().len(), 37);
+    }
+
+    // ***** the state dump (plan/restore-determinism) *****
+
+    /// Ids in an order that neither a string sort ("10" < "2") nor a numeric
+    /// one would reproduce.
+    const DUMP_IDS: [u32; 5] = [2, 10, 1, 15, 6];
+
+    /// Snakes, bots and crystals, each inserted out of id order, and one
+    /// crystal eaten from the middle of the field.
+    fn game_for_the_dump() -> GameState {
+        let mut game = game_with_grace(2.0);
+
+        game.step(DT);
+
+        for (i, id) in DUMP_IDS.iter().enumerate() {
+            let x = 600.0 + i as f32 * 300.0;
+
+            game.spawn_scripted_actor(*id, "s1", 1, x, 1280.0, 90.0)
+                .unwrap();
+        }
+
+        // the fixture keeps the field empty; this one needs a few crystals
+        let mut world = game.sim.world.clone();
+
+        world.max_crystals = 60;
+
+        let arena = game.sim.arena;
+        let mut rng = Rng::new(5);
+
+        for i in 0..5 {
+            let spot = [1000.0 + i as f32 * 50.0, 700.0];
+
+            game.sim.field.drop_at(spot, 0, &mut rng, &world, &arena);
+        }
+
+        let eaten = game.sim.field.take_at([1100.0, 700.0], 1.0, &world);
+
+        assert!(eaten.is_some(), "the middle crystal must be eaten");
+
+        game
+    }
+
+    fn keys<T>(map: &IndexMap<u32, T>) -> Vec<u32> {
+        map.keys().copied().collect()
+    }
+
+    #[test]
+    fn the_dump_keeps_the_iteration_order() {
+        let game = game_for_the_dump();
+        let dump = game.sim.serialize();
+
+        // a list of pairs, not an object: serde_json sorts object keys
+        assert!(dump["snakes"].is_array(), "{}", dump["snakes"]);
+        assert!(dump["bots"].is_array());
+        assert!(dump["field"]["crystals"].is_array());
+
+        let mut restored = game_with_grace(2.0);
+
+        restored.sim.deserialize(dump).unwrap();
+
+        assert_eq!(keys(&restored.sim.snakes), DUMP_IDS.to_vec());
+        assert_eq!(keys(&restored.sim.bots), DUMP_IDS.to_vec());
+
+        let crystals =
+            |g: &GameState| -> Vec<u32> { g.sim.field.iter().map(|(id, _)| *id).collect() };
+
+        assert_eq!(crystals(&restored), crystals(&game));
+        assert_eq!(restored.sim.since_sweep, game.sim.since_sweep);
+        assert_eq!(restored.sim.arena.radius, game.sim.arena.radius);
+        assert_eq!(restored.sim.spawn_slots, game.sim.spawn_slots);
+    }
+
+    /// A dump written before the pair lists: the maps as JSON objects, no
+    /// sweep counter, arena or spawn slots. It loads, in ascending id order —
+    /// the original order was already gone when it was written.
+    #[test]
+    fn a_dump_in_the_old_object_format_still_loads() {
+        let game = game_for_the_dump();
+        let mut dump = game.sim.serialize();
+
+        fn to_object(pairs: &serde_json::Value) -> serde_json::Value {
+            let mut object = serde_json::Map::new();
+
+            for pair in pairs.as_array().unwrap() {
+                object.insert(pair[0].to_string(), pair[1].clone());
+            }
+
+            serde_json::Value::Object(object)
+        }
+
+        dump["snakes"] = to_object(&dump["snakes"]);
+        dump["bots"] = to_object(&dump["bots"]);
+        dump["field"]["crystals"] = to_object(&dump["field"]["crystals"]);
+
+        let object = dump.as_object_mut().unwrap();
+
+        object.remove("since_sweep");
+        object.remove("arena");
+        object.remove("spawn_slots");
+
+        let mut restored = game_with_grace(2.0);
+
+        // one step, so this core holds the map's slots of its own
+        restored.step(DT);
+
+        let own_slots = restored.sim.spawn_slots.clone();
+
+        assert!(!own_slots.is_empty());
+
+        restored.sim.deserialize(dump).unwrap();
+
+        // a field the dump does not have leaves what the core had alone
+        assert_eq!(restored.sim.spawn_slots, own_slots);
+
+        let mut ascending = DUMP_IDS.to_vec();
+
+        ascending.sort();
+
+        assert_eq!(keys(&restored.sim.snakes), ascending);
+        assert_eq!(keys(&restored.sim.bots), ascending);
+        assert_eq!(restored.sim.field.len(), game.sim.field.len());
     }
 }

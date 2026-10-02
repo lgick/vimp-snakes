@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A core restored from `serialize_state` replays the match exactly: snakes,
+  bots and crystals keep their order in the dump (a list of `[id, value]`
+  pairs instead of a JSON object, whose keys `serde_json` sorted as strings),
+  and the sweep counter, the arena and the spawn slots are dumped too. Dumps
+  in the old format still load.
+
 ## [0.15.6] - 2026-09-29
 
 ### Changed

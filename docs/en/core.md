@@ -311,18 +311,29 @@ tier rolls, respawn throws), `IndexMap` keeps iteration order stable,
 `round2()` quantises what goes on the wire, and no wall clock is read inside
 the step.
 
+The same holds across a restore: a core rebuilt from `serialize_state` must
+replay the match step for step. The order in which snakes, bots and crystals
+are walked is part of the match — it decides who eats a contested crystal and
+in which order the `Rng` is drawn (boost burns, death piles, respawns, bot
+re-rolls). A JSON object would lose that order (`serde_json` keeps object keys
+sorted as strings, "15" before "6"), so the dump writes these maps as ordered
+lists of `[id, value]` pairs (`core/src/ordered.rs`); a dump in the old object
+form still loads, in ascending id order. The sweep counter, the arena and the
+spawn slots are dumped too. `a_restored_core_replays_the_match_step_for_step`
+(`core/tests/sim.rs`) pins it with 30 bots.
+
 ## Tests
 
-`cargo test --workspace` runs ~96 tests, all inside the crate:
+`cargo test --workspace` runs ~110 tests, all inside the crate:
 
-| Module                | What it pins                                                                                                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `motion.rs`           | the turn clamp, both input sources, growth curves, `BodyPath` (advance/trim/resample/touches/`touches_ahead`/`reset_with_body`)                                                                                                              |
-| `snake.rs`            | key semantics (held vs one-shot), the pointer, the boost drain and its floor, respawn, the grace, the prediction block                                                                                                                       |
-| `game.rs`             | the grace (frozen, harmless, unkillable), the fault rule, spawning whole, respawn placement (spread, map points first, no self-collision), the boost byte, the `burn` event reporting every crystal the boost sheds, row width vs the schema |
-| `crystals.rs`         | spawn cadence and cap, pickup, death drops, the delta and the resync, the crystals a shrinking arena leaves behind                                                                                                                           |
-| `arena.rs`            | the disc derived from a grid, `contains` with a radius                                                                                                                                                                                       |
-| `client/predictor.rs` | **the parity suite** — the replica and the authoritative step must produce the same positions from the same inputs, including through the grace                                                                                              |
+| Module                | What it pins                                                                                                                                                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `motion.rs`           | the turn clamp, both input sources, growth curves, `BodyPath` (advance/trim/resample/touches/`touches_ahead`/`reset_with_body`)                                                                                                                                                   |
+| `snake.rs`            | key semantics (held vs one-shot), the pointer, the boost drain and its floor, respawn, the grace, the prediction block                                                                                                                                                            |
+| `game.rs`             | the grace (frozen, harmless, unkillable), the fault rule, spawning whole, respawn placement (spread, map points first, no self-collision), the boost byte, the `burn` event reporting every crystal the boost sheds, row width vs the schema, the dump's order and its old format |
+| `crystals.rs`         | spawn cadence and cap, pickup, death drops, the delta and the resync, the crystals a shrinking arena leaves behind                                                                                                                                                                |
+| `arena.rs`            | the disc derived from a grid, `contains` with a radius                                                                                                                                                                                                                            |
+| `client/predictor.rs` | **the parity suite** — the replica and the authoritative step must produce the same positions from the same inputs, including through the grace                                                                                                                                   |
 
 `tests/core/nodeCore.test.js` (Vitest, `integration` project) drives the real
 Node build from JS: config → `GameCore` → `step` → `pack_frame` →

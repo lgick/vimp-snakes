@@ -19,6 +19,7 @@ pub mod config;
 pub mod crystals;
 pub mod game;
 pub mod motion;
+mod ordered;
 pub mod snake;
 
 use client::ClientState;

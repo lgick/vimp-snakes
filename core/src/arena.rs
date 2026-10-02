@@ -14,10 +14,11 @@
 //! `src/client/parts/Arena.js` draws it from the same numbers. Change the grid
 //! size or the step and both halves move together, which is the whole point.
 
+use serde::{Deserialize, Serialize};
 use vimp_engine_core::map::GameMap;
 use vimp_engine_core::rng::Rng;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Arena {
     pub centre: [f32; 2],
     pub radius: f32,
