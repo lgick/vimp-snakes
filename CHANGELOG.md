@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Chat texts for the engine's host-migration messages `s:7` ("Host
+  changed"), `s:8` ("You are no longer the host (connection lost)") and
+  `s:9`–`s:11` ("Host changed: the previous host was lagging / went
+  inactive / had a poor connection").
+- Chat texts for the engine's "Change host" vote notices `v:6`–`v:15`
+  ("Usage: /changehost" … "Host vote cancelled").
+
 ### Fixed
 
 - A core restored from `serialize_state` replays the match exactly: snakes,
