@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.7] - 2026-10-05
+
 ### Added
 
 - Chat texts for the engine's host-migration messages `s:7` ("Host
